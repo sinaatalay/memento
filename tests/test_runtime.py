@@ -54,7 +54,9 @@ class FakeBrain(Brain):
             assert params["expected_revision"] == revision
             path.write_text(params["content"])
         elif operation == "add_timeline_entry":
-            path.write_text(text + f"\n- **{params['date']}** | {params.get('source')} — {params['summary']}\n")
+            path.write_text(
+                text + f"\n- **{params['date']}** | {params.get('source')} — {params['summary']}\n"
+            )
         return {"status": "ok"}
 
 
@@ -116,7 +118,9 @@ async def settle(runtime):
 def page(title, body, recipe=None):
     head = f"---\ntype: note\ntitle: {title}\n"
     if recipe:
-        head += "recipe: |\n" + "".join(f"  {line}\n" if line else "\n" for line in recipe.splitlines())
+        head += "recipe: |\n" + "".join(
+            f"  {line}\n" if line else "\n" for line in recipe.splitlines()
+        )
     return head + f"---\n\n# {title}\n\n{body}\n"
 
 

@@ -65,8 +65,14 @@ def gbrain(*args: str, stdin: str | None = None) -> str:
 
 def reset() -> None:
     """Wipe and re-create the demo brain. Refuses anything but a dedicated GBRAIN_HOME."""
-    if not BRAIN_HOME.is_absolute() or BRAIN_HOME == Path.home() or not str(BRAIN_HOME).startswith(str(HOME)):
-        sys.exit(f"GBRAIN_HOME must be a dedicated demo brain under {HOME}, not {BRAIN_HOME or 'unset'}")
+    if (
+        not BRAIN_HOME.is_absolute()
+        or BRAIN_HOME == Path.home()
+        or not str(BRAIN_HOME).startswith(str(HOME))
+    ):
+        sys.exit(
+            f"GBRAIN_HOME must be a dedicated demo brain under {HOME}, not {BRAIN_HOME or 'unset'}"
+        )
     shutil.rmtree(BRAIN_HOME / ".gbrain", ignore_errors=True)
     for name in ("state.json", "clock.json"):
         (HOME / name).unlink(missing_ok=True)
@@ -77,7 +83,11 @@ def reset() -> None:
 
 def mcp_config() -> Path:
     path = HOME / "mcp.json"
-    server = {"command": GBRAIN[0], "args": [*GBRAIN[1:], "serve"], "env": {"GBRAIN_HOME": str(BRAIN_HOME)}}
+    server = {
+        "command": GBRAIN[0],
+        "args": [*GBRAIN[1:], "serve"],
+        "env": {"GBRAIN_HOME": str(BRAIN_HOME)},
+    }
     path.write_text(json.dumps({"mcpServers": {"gbrain": server}}, indent=2))
     return path
 
@@ -103,7 +113,10 @@ def chat(message: str | None = None) -> None:
 
 def email(sender: str, subject: str, body: str) -> None:
     """An email page, as GBrain's Gmail connector would write it."""
-    slug = "emails/" + "-".join("".join(c if c.isalnum() else " " for c in subject.lower()).split())[:60]
+    slug = (
+        "emails/"
+        + "-".join("".join(c if c.isalnum() else " " for c in subject.lower()).split())[:60]
+    )
     page = f"---\ntype: email\ntitle: {json.dumps(subject)}\nfrom: {json.dumps(sender)}\n---\n\n{body}\n"
     gbrain("put", slug, "--json", stdin=page)
     print(f"email   {sender}: {subject}")

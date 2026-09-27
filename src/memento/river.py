@@ -20,7 +20,7 @@ from .recipe import Recipe, load
 MODEL = os.environ.get("MEMENTO_RIVER_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash")
 REPAIRS = 2
 
-LANGUAGE = '''\
+LANGUAGE = """\
 A recipe is a small Python module stored in a memory page's frontmatter. It
 says when the memory should come back to the user on their own, without them
 asking. Two decorators bind functions to the world:
@@ -59,9 +59,9 @@ only the page in front of it, literally. So:
 
 Only `from memento import ...` is allowed; no other imports, no while loops,
 no classes, no names starting with an underscore. Keep lines under 80 chars.
-'''
+"""
 
-PRINCIPLES = '''\
+PRINCIPLES = """\
 Good proactive memory is rare and precise. The user should be glad of every
 notification: it arrives at the right moment, is specific, and says what to do.
 
@@ -94,9 +94,9 @@ Watching:
 
 Notification text: short, concrete, actionable, to the user as "you".
 Name the thing and the time.
-'''
+"""
 
-EXAMPLES = '''\
+EXAMPLES = """\
 Example page "Flight to NYC", now Sunday, September 27, 2026, 3:00 PM:
   UA123 SFO to JFK, Monday Sep 28, departs 8:05am. Seat 14C. Conf K7Q2LM.
 
@@ -166,7 +166,7 @@ def possible_intro(news):
 Example page "Aisle seats": I prefer aisle seats on long flights.
 
 NONE
-'''
+"""
 
 SYSTEM = f"""You write memento recipes: small Python modules that make a \
 memory proactive.
@@ -226,7 +226,9 @@ def check(source: str, memory: Page, now: datetime) -> Recipe:
     for trigger in recipe.timers.values():
         if trigger.every is None and trigger.at <= now:
             when = trigger.at.strftime("%a %b %-d %-I:%M %p")
-            raise RecipeError(f"@at for {trigger.name}() is {when}, already past; only schedule the future")
+            raise RecipeError(
+                f"@at for {trigger.name}() is {when}, already past; only schedule the future"
+            )
     return recipe
 
 
@@ -282,7 +284,10 @@ class River:
                     raise
                 messages += [
                     {"role": "assistant", "content": reply},
-                    {"role": "user", "content": f"That recipe doesn't run: {e}\nFix it and answer again."},
+                    {
+                        "role": "user",
+                        "content": f"That recipe doesn't run: {e}\nFix it and answer again.",
+                    },
                 ]
         raise AssertionError("unreachable")
 

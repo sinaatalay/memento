@@ -101,7 +101,9 @@ class PageState:
 class State:
     pages: dict[str, PageState] = field(default_factory=dict)
     own: dict[str, str] = field(default_factory=dict)  # file digests memento wrote itself
-    timers: dict[str, dict] = field(default_factory=dict)  # key -> {"since": iso, "fired": iso | None}
+    timers: dict[str, dict] = field(
+        default_factory=dict
+    )  # key -> {"since": iso, "fired": iso | None}
 
     @classmethod
     def load(cls) -> State:

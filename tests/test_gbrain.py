@@ -37,7 +37,11 @@ def test_with_recipe_replaces_only_the_recipe():
     updated = with_recipe(PAGE, NEW)
     fm = front(updated)
     assert fm["recipe"] == NEW
-    assert fm["tags"] == ["travel"] and fm["source_kind"] == "put_page" and fm["title"] == "Flight to NYC"
+    assert (
+        fm["tags"] == ["travel"]
+        and fm["source_kind"] == "put_page"
+        and fm["title"] == "Flight to NYC"
+    )
     assert updated.endswith("# Flight to NYC\n\nUA123 on Monday.\n")
 
 
@@ -57,7 +61,9 @@ def test_ntfy_push_is_utf8_json():
 
     from memento.deliver import push_request
 
-    request = push_request("https://ntfy.sh/memento-demo", "Priya Raman — hiring", "Intro for Priya? «Alex»")
+    request = push_request(
+        "https://ntfy.sh/memento-demo", "Priya Raman — hiring", "Intro for Priya? «Alex»"
+    )
     assert request.full_url == "https://ntfy.sh/"
     assert json.loads(request.data) == {
         "topic": "memento-demo",

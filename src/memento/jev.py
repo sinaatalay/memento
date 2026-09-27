@@ -42,19 +42,27 @@ WORTH_A_RECIPE = Says(
 def state(page: Page, now: datetime) -> dict:
     return {
         "now": now.strftime("%A, %B %-d, %Y, %-I:%M %p"),
-        "page": {"title": page.title, "type": page.type or "note", "text": page.text.strip()[:8000]},
+        "page": {
+            "title": page.title,
+            "type": page.type or "note",
+            "text": page.text.strip()[:8000],
+        },
     }
 
 
 def to_jev(question: Question) -> DecisionQuestion:
     if isinstance(question, Says):
-        false = "The page does not report this. It is about something else, or mentions it only as a "
+        false = (
+            "The page does not report this. It is about something else, or mentions it only as a "
+        )
         false += "question, plan, possibility or hypothetical."
         if question.unless:
             false += f" Also no: {question.unless}."
         return NoulQuestion(
             instructions=f"Does this page report that {question.claim}?",
-            criteria=NoulCriteria(true=f"The page itself reports that {question.claim}.", false=false),
+            criteria=NoulCriteria(
+                true=f"The page itself reports that {question.claim}.", false=false
+            ),
         )
     if isinstance(question, Which):
         return ChoiceQuestion(instructions=question.question, criteria=dict(question.options))
@@ -99,7 +107,8 @@ class Jev:
         async def one(chunk: list[str]) -> tuple[dict[str, float | str], int]:
             names = {f"q{i}": key for i, key in enumerate(chunk)}  # short names keep requests small
             request = DecisionRequest(
-                state=state(page, now), questions={n: to_jev(questions[k]) for n, k in names.items()}
+                state=state(page, now),
+                questions={n: to_jev(questions[k]) for n, k in names.items()},
             )
             response = await self.model.decide(request, {"timeout": 30.0})
             answers = {key: value(questions[key], response.answers[n]) for n, key in names.items()}

@@ -60,7 +60,9 @@ def test_keys_are_stable_across_rewrites_and_change_with_content():
     reformatted = FLIGHT.replace("\n\n@when", "\n\n\n# watch the flight\n@when")
     assert set(load(reformatted, ME, NOW).triggers) == first
     moved = set(load(FLIGHT.replace("08:05", "10:40"), ME, NOW).triggers)
-    assert [k.split("-")[0] for k in moved & first] == ["trips/nyc#weekly"]  # the rest moved with the flight
+    assert [k.split("-")[0] for k in moved & first] == [
+        "trips/nyc#weekly"
+    ]  # the rest moved with the flight
 
 
 def test_timer_handler_asks_this_memory():
@@ -75,7 +77,10 @@ def test_watch_handler_branches_on_a_choice_and_updates():
     changed = next(iter(load(FLIGHT, ME, NOW).watches.values()))
     ask, asked = answers(Which="cancelled")
     done = run(changed, ME, NOW, ask, news=NEWS)
-    assert [(e.kind, e.text) for e in done.effects] == [("notify", "UA123 was cancelled."), ("update", "")]
+    assert [(e.kind, e.text) for e in done.effects] == [
+        ("notify", "UA123 was cancelled."),
+        ("update", ""),
+    ]
     assert done.effects[1].news == NEWS
     assert asked[0][1] == Which("What happened?", (("delayed", "later"), ("cancelled", "off")))
 
@@ -164,4 +169,8 @@ def spin(news):
 
 def test_until_needs_every():
     with pytest.raises(RecipeError, match="until=...\\) only makes sense with every="):
-        load('from memento import at\n@at("2026-10-01 09:00", until="2026-10-09 09:00")\ndef f():\n    pass\n', ME, NOW)
+        load(
+            'from memento import at\n@at("2026-10-01 09:00", until="2026-10-09 09:00")\ndef f():\n    pass\n',
+            ME,
+            NOW,
+        )

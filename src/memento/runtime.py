@@ -13,7 +13,6 @@ Handlers run in a worker thread and only record effects; `notify` and
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -28,7 +27,9 @@ from .recipe import Recipe, load, run
 from .river import River
 
 WORTH = 0.5  # P(worth a recipe) above which River is asked; River may still say NONE
-LATE = timedelta(hours=1)  # a reminder later than this (runtime was off, clock jumped) is stale: skip it
+LATE = timedelta(
+    hours=1
+)  # a reminder later than this (runtime was off, clock jumped) is stale: skip it
 
 
 @dataclass
@@ -42,10 +43,6 @@ class Memory:
     @property
     def page(self) -> Page:
         return self.stored.page
-
-
-def _digest(text: str) -> str:
-    return hashlib.sha1(text.encode()).hexdigest()
 
 
 def next_fire(trigger: Trigger, record: dict, now: datetime) -> datetime | None:
@@ -130,7 +127,9 @@ class Runtime:
         if before and before.file == stored.digest:
             return
         body = stored.body_digest
-        after = state.PageState(stored.digest, body, stored.recipe, before.reviewed if before else "")
+        after = state.PageState(
+            stored.digest, body, stored.recipe, before.reviewed if before else ""
+        )
         self.state.pages[slug] = after
         if baseline or self.state.own.get(slug) == stored.digest:
             after.reviewed = body
@@ -190,17 +189,24 @@ class Runtime:
             if gate:
                 parts.append(f"worth a recipe {float(asked.values['worth']):.2f}")
             if fired:
-                parts += [f"[bold green]✓ {escape(claims[k][0].page.title)} {float(asked.values[k]):.2f}[/]" for k in fired]
+                parts += [
+                    f"[bold green]✓ {escape(claims[k][0].page.title)} {float(asked.values[k]):.2f}[/]"
+                    for k in fired
+                ]
             elif ranked:
                 best = ranked[0]
-                parts.append(f"[dim]nothing fires (best: {escape(claims[best][0].page.title)} {float(asked.values[best]):.2f})[/]")
+                parts.append(
+                    f"[dim]nothing fires (best: {escape(claims[best][0].page.title)} {float(asked.values[best]):.2f})[/]"
+                )
             self.say("jev", " · ".join(parts))
             for key in fired:
                 memory, trigger = claims[key]
                 self.spawn(self.fire(memory, trigger, news=page))
             if gate:
                 if fired:
-                    self.state.pages[page.slug].reviewed = stored.body_digest  # news for a memory, not a new one
+                    self.state.pages[
+                        page.slug
+                    ].reviewed = stored.body_digest  # news for a memory, not a new one
                 elif float(asked.values["worth"]) >= WORTH:
                     await self.write_recipe(stored)
                 else:
@@ -216,13 +222,18 @@ class Runtime:
             if not memory.recipe:
                 continue
             for key, trigger in memory.recipe.timers.items():
-                record = self.state.timers.setdefault(key, {"since": now.isoformat(), "fired": None})
+                record = self.state.timers.setdefault(
+                    key, {"since": now.isoformat(), "fired": None}
+                )
                 moment = next_fire(trigger, record, now)
                 if moment is not None and moment <= now:
                     record["fired"] = now.isoformat()
                     if now - moment > LATE:
                         late = f"{(now - moment).total_seconds() / 3600:.0f}h"
-                        self.say("fire", f"[dim]{escape(memory.page.title)} › {trigger.name}() skipped, {late} late[/]")
+                        self.say(
+                            "fire",
+                            f"[dim]{escape(memory.page.title)} › {trigger.name}() skipped, {late} late[/]",
+                        )
                     else:
                         self.spawn(self.fire(memory, trigger))
 
@@ -230,17 +241,27 @@ class Runtime:
 
     async def fire(self, memory: Memory, trigger: Trigger, news: Page | None = None) -> None:
         now = self.now()
-        why = f"@when {trigger.claim}" if trigger.kind == "when" else f"@at {trigger.at:%a %-I:%M %p}"
-        self.say("fire", f"[bold]{escape(memory.page.title)}[/] › {escape(trigger.name)}()  [dim]{escape(why)}[/]")
+        why = (
+            f"@when {trigger.claim}" if trigger.kind == "when" else f"@at {trigger.at:%a %-I:%M %p}"
+        )
+        self.say(
+            "fire",
+            f"[bold]{escape(memory.page.title)}[/] › {escape(trigger.name)}()  [dim]{escape(why)}[/]",
+        )
 
         def ask(page: Page, question):
             assert self.jev is not None
             return self.jev.answer(page, now, question)
 
         try:
-            done = await asyncio.wait_for(asyncio.to_thread(run, trigger, memory.page, now, ask, news), 90)
+            done = await asyncio.wait_for(
+                asyncio.to_thread(run, trigger, memory.page, now, ask, news), 90
+            )
         except Exception as e:
-            self.say("error", f"{escape(memory.page.title)} › {trigger.name}(): {escape(str(e) or type(e).__name__)}")
+            self.say(
+                "error",
+                f"{escape(memory.page.title)} › {trigger.name}(): {escape(str(e) or type(e).__name__)}",
+            )
             return
         for page, question, answer in done.asked:
             text = getattr(question, "claim", None) or getattr(question, "question", "")
@@ -249,7 +270,9 @@ class Runtime:
             try:
                 await self.apply(memory, effect)
             except Exception as e:
-                self.say("error", f"{escape(memory.page.title)}: {effect.kind} failed: {escape(str(e))}")
+                self.say(
+                    "error", f"{escape(memory.page.title)}: {effect.kind} failed: {escape(str(e))}"
+                )
 
     async def apply(self, memory: Memory, effect: Effect) -> None:
         if effect.kind == "notify":
@@ -272,16 +295,25 @@ class Runtime:
             try:
                 draft = await self.river.awrite(stored.page, now, current, self.others(slug))
             except Exception as e:
-                self.say("error", f"River couldn't write a recipe for {escape(stored.page.title)}: {escape(str(e))}")
+                self.say(
+                    "error",
+                    f"River couldn't write a recipe for {escape(stored.page.title)}: {escape(str(e))}",
+                )
                 return
             self.state.pages[slug].reviewed = stored.body_digest
             if draft.recipe.strip() == (current or "").strip():
                 verdict = "keeps its recipe" if current else "needs no recipe"
-                self.say("river", f"{escape(stored.page.title)} {verdict} [dim]({draft.seconds:.1f} s)[/]")
+                self.say(
+                    "river",
+                    f"{escape(stored.page.title)} {verdict} [dim]({draft.seconds:.1f} s)[/]",
+                )
                 return
             await self.write(slug, self.brain.set_recipe(slug, draft.recipe))
             verb = "rewrote" if current else "wrote"
-            self.say("river", f"{verb} a recipe for [bold]{escape(stored.page.title)}[/] [dim]({draft.seconds:.1f} s)[/]")
+            self.say(
+                "river",
+                f"{verb} a recipe for [bold]{escape(stored.page.title)}[/] [dim]({draft.seconds:.1f} s)[/]",
+            )
             self.show_triggers(slug)
 
     def others(self, slug: str) -> list[Page]:
@@ -299,15 +331,22 @@ class Runtime:
             try:
                 draft = await self.river.arevise(memory.page, memory.stored.recipe, news, now)
             except Exception as e:
-                self.say("error", f"River couldn't update {escape(memory.page.title)}: {escape(str(e))}")
+                self.say(
+                    "error", f"River couldn't update {escape(memory.page.title)}: {escape(str(e))}"
+                )
                 return
 
             async def both():
-                await self.brain.add_timeline(slug, f"{now:%Y-%m-%d}", draft.note or "Updated.", news and news.slug)
+                await self.brain.add_timeline(
+                    slug, f"{now:%Y-%m-%d}", draft.note or "Updated.", news and news.slug
+                )
                 await self.brain.set_recipe(slug, draft.recipe)
 
             await self.write(slug, both())
-            self.say("river", f"updated [bold]{escape(memory.page.title)}[/]: {escape(draft.note or '')} [dim]({draft.seconds:.1f} s)[/]")
+            self.say(
+                "river",
+                f"updated [bold]{escape(memory.page.title)}[/]: {escape(draft.note or '')} [dim]({draft.seconds:.1f} s)[/]",
+            )
             self.show_triggers(slug)
 
     async def write(self, slug: str, operation) -> None:
@@ -343,7 +382,8 @@ class Runtime:
     def say(self, kind: str, text: str) -> None:
         label = "🔔" if kind == "notify" else kind
         self.out.print(
-            f"[dim]{self.now():%a %H:%M}[/]  [{self.STYLES[kind]}]{label:<6}[/] {text}", soft_wrap=True
+            f"[dim]{self.now():%a %H:%M}[/]  [{self.STYLES[kind]}]{label:<6}[/] {text}",
+            soft_wrap=True,
         )
 
     def show_triggers(self, slug: str) -> None:

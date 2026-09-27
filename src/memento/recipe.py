@@ -92,11 +92,15 @@ def lint(source: str) -> list[str]:
     problems = []
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
-        if isinstance(node, ast.Import) or (isinstance(node, ast.ImportFrom) and node.module != "memento"):
+        if isinstance(node, ast.Import) or (
+            isinstance(node, ast.ImportFrom) and node.module != "memento"
+        ):
             problems.append(f"line {line}: only `from memento import ...` is allowed")
         elif type(node) in _BANNED_NODES:
             problems.append(f"line {line}: {_BANNED_NODES[type(node)]} are not allowed in a recipe")
-        elif isinstance(node, ast.Attribute) and (node.attr.startswith("_") or node.attr in _BANNED_ATTRIBUTES):
+        elif isinstance(node, ast.Attribute) and (
+            node.attr.startswith("_") or node.attr in _BANNED_ATTRIBUTES
+        ):
             problems.append(f"line {line}: `.{node.attr}` is not allowed in a recipe")
         elif isinstance(node, ast.Name) and (node.id.startswith("_") or node.id in _BANNED_NAMES):
             problems.append(f"line {line}: `{node.id}` is not allowed in a recipe")
@@ -162,7 +166,10 @@ def load(source: str, memory: Page, now: datetime) -> Recipe:
     token = api._current.set(ctx)
     try:
         with _Budget():
-            exec(compile(source, "recipe.py", "exec"), {"__name__": "recipe", "__builtins__": _SAFE_BUILTINS})
+            exec(
+                compile(source, "recipe.py", "exec"),
+                {"__name__": "recipe", "__builtins__": _SAFE_BUILTINS},
+            )
     except RecipeError as e:
         raise RecipeError(f"{_where(e)}{e}") from None
     except Exception as e:

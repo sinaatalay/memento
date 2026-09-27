@@ -1,11 +1,11 @@
 """memento: proactive memory for GBrain.
 
-    memento run                 watch the brain and run every recipe
-    memento ls                  proactive memories and what they wait for
-    memento show SLUG           a memory's recipe
-    memento check FILE          load a recipe (a page .md, a .py, or -) and list its triggers
-    memento write SLUG          have River write (or rewrite) a page's recipe now
-    memento time [+3h|-1d|"mon 7:45"|reset]   show or move the clock
+memento run                 watch the brain and run every recipe
+memento ls                  proactive memories and what they wait for
+memento show SLUG           a memory's recipe
+memento check FILE          load a recipe (a page .md, a .py, or -) and list its triggers
+memento write SLUG          have River write (or rewrite) a page's recipe now
+memento time [+3h|-1d|"mon 7:45"|reset]   show or move the clock
 """
 
 from __future__ import annotations
@@ -65,7 +65,9 @@ def cmd_ls(args) -> None:
             if trigger.kind == "at":
                 record = runtime.state.timers.get(key, {"since": now.isoformat(), "fired": None})
                 moment = next_fire(trigger, record, now)
-                status = f"[green]next {moment:%a %b %-d %-I:%M %p}[/]" if moment else "[dim]done[/]"
+                status = (
+                    f"[green]next {moment:%a %b %-d %-I:%M %p}[/]" if moment else "[dim]done[/]"
+                )
             else:
                 status = "[green]watching[/]" if watching(trigger, now) else "[dim]stopped[/]"
             out.print(f"  {status}  [dim]{escape(describe(trigger))}[/]")
@@ -81,7 +83,9 @@ def cmd_show(args) -> None:
     if not stored.recipe.strip():
         out.print("[dim]No recipe: an ordinary memory.[/]")
         return
-    out.print(Syntax(stored.recipe.rstrip(), "python", theme="ansi_dark", background_color="default"))
+    out.print(
+        Syntax(stored.recipe.rstrip(), "python", theme="ansi_dark", background_color="default")
+    )
 
 
 def cmd_check(args) -> None:
@@ -124,7 +128,11 @@ def cmd_time(args) -> None:
         except ValueError as e:
             sys.exit(str(e))
     shift = state.offset()
-    note = f"  [dim](real time {'+' if shift.total_seconds() >= 0 else '-'}{abs(shift)})[/]" if shift else ""
+    note = (
+        f"  [dim](real time {'+' if shift.total_seconds() >= 0 else '-'}{abs(shift)})[/]"
+        if shift
+        else ""
+    )
     out.print(f"{state.now():%A %B %-d %Y, %-I:%M %p}{note}")
 
 
@@ -144,7 +152,9 @@ def main() -> None:
     p.add_argument("slug")
     p.set_defaults(fn=cmd_write)
     p = sub.add_parser("time", help="show or move the clock (for demos)")
-    p.add_argument("spec", nargs="*", help='+3h, -1d, +1d2h, "mon 7:45", reset, or "YYYY-MM-DD HH:MM"')
+    p.add_argument(
+        "spec", nargs="*", help='+3h, -1d, +1d2h, "mon 7:45", reset, or "YYYY-MM-DD HH:MM"'
+    )
     p.set_defaults(fn=cmd_time)
     args = parser.parse_args()
     args.fn(args)

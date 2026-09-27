@@ -90,7 +90,9 @@ def content_root() -> Path:
     home = Path(os.environ.get("GBRAIN_HOME") or Path.home()).expanduser()
     roots = sorted((home / ".gbrain" / "content").glob("*/default"))
     if not roots:
-        raise RuntimeError(f"no GBrain content root under {home}/.gbrain; set GBRAIN_HOME or MEMENTO_BRAIN_DIR")
+        raise RuntimeError(
+            f"no GBrain content root under {home}/.gbrain; set GBRAIN_HOME or MEMENTO_BRAIN_DIR"
+        )
     return roots[0]
 
 
@@ -138,7 +140,9 @@ class Brain:
         try:
             result = json.loads(out)
         except json.JSONDecodeError:
-            raise GBrainError(f"gbrain {operation}: {(err or out).decode(errors='replace')[-400:]}") from None
+            raise GBrainError(
+                f"gbrain {operation}: {(err or out).decode(errors='replace')[-400:]}"
+            ) from None
         if proc.returncode or (isinstance(result, dict) and result.get("error")):
             raise GBrainError(f"gbrain {operation}: {result.get('error', result)}")
         return result

@@ -153,15 +153,19 @@ def _moment(value: str | datetime, what: str) -> Moment:
         try:
             value = datetime.fromisoformat(value.strip())
         except ValueError:
-            raise RecipeError(f'{what}: write the time as "YYYY-MM-DD HH:MM", not {value!r}') from None
+            raise RecipeError(
+                f'{what}: write the time as "YYYY-MM-DD HH:MM", not {value!r}'
+            ) from None
     if not isinstance(value, datetime):
-        raise RecipeError(f"{what}: expected a time like at(\"2026-09-28 08:05\"), got {value!r}")
+        raise RecipeError(f'{what}: expected a time like at("2026-09-28 08:05"), got {value!r}')
     if value.tzinfo is None:
         value = value.replace(tzinfo=TZ)
     return Moment.fromtimestamp(value.timestamp(), value.tzinfo)
 
 
-def at(when: str | datetime, *, every: timedelta | None = None, until: str | datetime | None = None):
+def at(
+    when: str | datetime, *, every: timedelta | None = None, until: str | datetime | None = None
+):
     """A moment: `at("2026-09-28 08:05")`, in the user's timezone.
 
     As a decorator it runs the function at that moment: `@at(flight - hours(3))`.
@@ -303,7 +307,9 @@ def _context() -> Context:
 def _register(trigger: Trigger) -> Callable:
     ctx = _context()
     if ctx.triggers is None:
-        raise RecipeError("@at and @when belong at the top level of the recipe, not inside a handler")
+        raise RecipeError(
+            "@at and @when belong at the top level of the recipe, not inside a handler"
+        )
     if not callable(trigger.fn):
         raise RecipeError(f"@{trigger.kind} decorates a function (def ...:)")
     ctx.triggers.append(trigger)

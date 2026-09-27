@@ -22,11 +22,15 @@ async def banner(title: str, text: str) -> None:
     if sys.platform != "darwin":
         return
     script = (
-        f"display notification {_applescript(text)} with title \"memento\" "
-        f"subtitle {_applescript(title)} sound name \"Glass\""
+        f'display notification {_applescript(text)} with title "memento" '
+        f'subtitle {_applescript(title)} sound name "Glass"'
     )
     proc = await asyncio.create_subprocess_exec(
-        "osascript", "-e", script, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+        "osascript",
+        "-e",
+        script,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
     await asyncio.wait_for(proc.wait(), 10)
 
