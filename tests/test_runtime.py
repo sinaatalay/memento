@@ -141,7 +141,7 @@ def test_first_run_treats_the_brain_as_history(world):
 def test_river_writes_a_recipe_for_a_new_memory_and_its_write_is_not_news(world):
     brain, _, _ = world
     river = FakeRiver({"trips/nyc": FLIGHT_RECIPE})
-    runtime = Runtime(brain, FakeJev({"come back to the user": "UA123"}), river)
+    runtime = Runtime(brain, FakeJev({"future moment": "UA123"}), river)
     runtime.scan(baseline=True)
     brain.put("trips/nyc", page("Flight to NYC", "UA123 SFO to JFK Monday 8:05am"))
     asyncio.run(settle(runtime))

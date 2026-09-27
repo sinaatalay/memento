@@ -90,6 +90,23 @@ def lint(source: str) -> list[str]:
     except SyntaxError as e:
         return [f"line {e.lineno}: syntax error: {e.msg}"]
     problems = []
+    bound = set(_SAFE_BUILTINS)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.Lambda)):
+            bound.update(a.arg for a in ast.walk(node.args) if isinstance(a, ast.arg))
+            bound.add(getattr(node, "name", ""))
+        elif isinstance(node, ast.ImportFrom):
+            bound.update((a.asname or a.name) for a in node.names)
+            if any(a.name == "*" for a in node.names):
+                bound.update(api.__all__)
+        elif isinstance(node, ast.MatchAs | ast.MatchStar) and node.name:
+            bound.add(node.name)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id not in bound:
+            hint = " (import it from memento)" if node.id in api.__all__ else ""
+            problems.append(f"line {node.lineno}: `{node.id}` is not defined{hint}")
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
         if isinstance(node, ast.Import) or (

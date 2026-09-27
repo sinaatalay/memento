@@ -65,12 +65,26 @@ PRINCIPLES = """\
 Good proactive memory is rare and precise. The user should be glad of every
 notification: it arrives at the right moment, is specific, and says what to do.
 
-When to give a page a recipe: a dated plan (trip, appointment, meeting,
-dinner), a deadline or bill, a promise the user made or is owed, something to
-watch for, a recurring habit the user asked for, or a need or opportunity
-that future news might meet (someone is hiring, looking for an intro, waiting
-on something). Most pages need nothing: facts, preferences, reference notes,
-things already done or past. Then answer NONE.
+When to give a page a recipe:
+- A dated plan (trip, appointment, dinner), a deadline or bill, a promise the
+  user made, or one someone made to them (nudge if it goes quiet).
+- A deadline that starts when something happens ("within 30 days of the
+  exercise"): watch for that event and update(news), so the revision can
+  schedule the real date.
+- A need or opportunity future news might meet: someone is hiring, raising,
+  looking for an intro, waiting on something.
+- Knowledge that news can make stale or urgent: a decision with conditions
+  to revisit, a belief about a competitor or a vendor, a hypothesis. Watch
+  for the news that would overturn it (or confirm it) and say what it
+  changes.
+- A lesson or advice that applies to a recognizable future situation: watch
+  for that situation and deliver the lesson at the moment it matters.
+- Coverage that matters when something goes wrong: a warranty, insurance, a
+  credit, a return window. Watch for the problem it covers; remind before it
+  expires if that's worth it.
+- A recurring habit the user asked for.
+Pages that need nothing: preferences, plain facts with no future bearing,
+reference notes, things already done or past. Then answer NONE.
 
 Timing, as a thoughtful assistant would:
 - Flight: ~3h before departure (leave for the airport); also the evening
@@ -81,7 +95,8 @@ Timing, as a thoughtful assistant would:
 - A promise needs lead time: if the user must bring, buy, send or prepare
   something, remind them early enough to do it (order the cake the day
   before), and say what it is at the moment it matters.
-- Only schedule moments after now. One or two timers, not five.
+- Only schedule moments after now, at an hour people are awake (9:00, not
+  midnight). One or two timers, not five.
 - If a reminder is pointless once something is done, check it:
   `if not this.says("the deck was already sent to Priya"): notify(...)`.
 
@@ -161,6 +176,39 @@ from memento import when, notify
 )
 def possible_intro(news):
     notify(f"Intro for Priya? \\"{news.title}\\" fits her founding designer role.")
+```
+
+Example page "Payouts in Nigeria", now Sunday, September 27, 2026:
+  Stripe doesn't support payouts to Nigeria, so we pay Nigerian vendors
+  through Paystack at a 3% fee.
+
+```python
+from memento import when, notify, update
+
+@when(
+    "Stripe launched payouts to Nigeria",
+    unless="it is a rumor, a user request, a beta waitlist, or another country",
+)
+def stripe_nigeria(news):
+    notify("Stripe now pays out to Nigeria. Move vendors off Paystack's 3% fee.")
+    update(news)
+```
+
+Example page "Renter's insurance", now Sunday, September 27, 2026:
+  Lemonade renter's policy covers theft of bikes and laptops up to $2,500,
+  $250 deductible, through August 2027.
+
+```python
+from memento import at, when, notify
+
+@when(
+    "my bike, laptop or other belongings were stolen or my home was broken into",
+    unless="it happened to someone else, or it is news about crime in general",
+    until=at("2027-08-31 23:59"),
+)
+def stolen(news):
+    notify("Your Lemonade renter's policy covers theft up to $2,500 "
+           "($250 deductible). File a claim.")
 ```
 
 Example page "Aisle seats": I prefer aisle seats on long flights.

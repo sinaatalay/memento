@@ -174,3 +174,16 @@ def test_until_needs_every():
             ME,
             NOW,
         )
+
+
+def test_a_forgotten_import_is_caught_before_the_handler_ever_runs():
+    source = """
+from memento import at, notify
+
+@at("2026-10-04 09:00")
+def check():
+    if not this.says("the side effects went away"):
+        notify("Call Dr. Patel.")
+"""
+    with pytest.raises(RecipeError, match=r"line 6: `this` is not defined \(import it from memento\)"):
+        load(source, ME, NOW)

@@ -26,17 +26,31 @@ from .api import Page, Question, Rate, Says, Which
 
 MODEL = os.environ.get("MEMENTO_JEV_MODEL", "jev-1.13.0")
 BATCH = 150  # questions per request; 200 short ones measured ~200 ms, well inside 64k tokens
-FIRES = 0.8  # a @when claim fires at this P(yes); says() inside handlers is P(yes) >= 0.5
+FIRES = 0.6  # a @when claim fires at this P(yes); near misses measured <= 0.05, matches >= 0.69
+# says() inside a handler is a plain yes/no: P(yes) >= 0.5
 
 # Asked about every new page that has no recipe yet: should River look at it?
-WORTH_A_RECIPE = Says(
-    claim=(
-        "it holds something that should come back to the user on its own later: "
-        "a dated plan, trip or appointment, a deadline or bill, a promise made or "
-        "owed, a recurring habit, or a need someone has that future news could meet"
+# Three narrow questions answer better than one long one; the page is worth a
+# look if any says yes.
+WORTH_A_RECIPE = {
+    "worth:time": Says(
+        "it holds a future moment or open loop: a dated plan, trip or appointment; a "
+        "deadline, bill or promise, made by or owed to the user; a recurring habit; or a "
+        "need someone has that future news could meet",
+        unless="it is only a preference, general knowledge, or already done",
     ),
-    unless="it is only a fact, a preference, reference material, or already done",
-)
+    "worth:knowledge": Says(
+        "it records a decision, a lesson or advice, a hypothesis, or a claim about a "
+        "competitor, vendor or product that specific future news or a future situation "
+        "could overturn, confirm or call for",
+        unless="it is a personal preference, general knowledge, or a routine status update",
+    ),
+    "worth:coverage": Says(
+        "it records a warranty, insurance, credit, refund or return window that would "
+        "matter if something goes wrong or before it expires",
+        unless="it only mentions a purchase or a price",
+    ),
+}
 
 
 def state(page: Page, now: datetime) -> dict:

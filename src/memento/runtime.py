@@ -180,14 +180,15 @@ class Runtime:
         }
         questions = {key: trigger.question for key, (_, trigger) in claims.items()}
         if gate:
-            questions["worth"] = WORTH_A_RECIPE
+            questions |= WORTH_A_RECIPE
         if questions and self.jev:
             asked = await self.jev.ask(page, now, questions)
             ranked = sorted(claims, key=lambda k: -float(asked.values[k]))
             fired = [k for k in ranked if float(asked.values[k]) >= FIRES]
             parts = [f"{asked.ms} ms", f"{len(claims)} claim{'s' * (len(claims) != 1)}"]
+            worth = max((float(asked.values[k]) for k in WORTH_A_RECIPE), default=0.0)
             if gate:
-                parts.append(f"worth a recipe {float(asked.values['worth']):.2f}")
+                parts.append(f"worth a recipe {worth:.2f}")
             if fired:
                 parts += [
                     f"[bold green]✓ {escape(claims[k][0].page.title)} {float(asked.values[k]):.2f}[/]"
@@ -207,7 +208,7 @@ class Runtime:
                     self.state.pages[
                         page.slug
                     ].reviewed = stored.body_digest  # news for a memory, not a new one
-                elif float(asked.values["worth"]) >= WORTH:
+                elif worth >= WORTH:
                     await self.write_recipe(stored)
                 else:
                     self.state.pages[page.slug].reviewed = stored.body_digest
