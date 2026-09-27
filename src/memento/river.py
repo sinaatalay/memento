@@ -236,6 +236,8 @@ class Draft:
 
 class River:
     def __init__(self, api_key: str | None = None, model: str = MODEL) -> None:
+        os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")  # river_client imports it
+        os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
         import river_client
 
         key = api_key or os.environ.get("RIVER_API_KEY")
@@ -280,9 +282,21 @@ class River:
                 ]
         raise AssertionError("unreachable")
 
-    def write(self, page: Page, now: datetime, current: str | None = None) -> Draft:
-        """A recipe for `page`, or "" if it needs none. `current` is its old recipe, if any."""
+    def write(
+        self, page: Page, now: datetime, current: str | None = None, others: list[Page] = ()
+    ) -> Draft:
+        """A recipe for `page`, or "" if it needs none. `current` is its old recipe, if any.
+
+        `others` are the brain's other proactive memories: news that one of them
+        already covers (an email about a known flight) needs no recipe of its own.
+        """
         prompt = f"{calendar(now)}\n\n{describe(page)}"
+        if others:
+            listed = "\n".join(f"- {o.title} ({o.slug})" for o in others[:60])
+            prompt += (
+                f"\n\nThe brain already has these proactive memories. If one of them "
+                f"already covers this page, answer NONE:\n{listed}"
+            )
         if current:
             prompt += (
                 f"\n\nThe page changed. Its current recipe is below; answer with the "
@@ -299,8 +313,10 @@ class River:
         )
         return self._draft(prompt, memory, now, revising=True)
 
-    async def awrite(self, page: Page, now: datetime, current: str | None = None) -> Draft:
-        return await asyncio.to_thread(self.write, page, now, current)
+    async def awrite(
+        self, page: Page, now: datetime, current: str | None = None, others: list[Page] = ()
+    ) -> Draft:
+        return await asyncio.to_thread(self.write, page, now, current, others)
 
     async def arevise(self, memory: Page, recipe: str, news: Page | None, now: datetime) -> Draft:
         return await asyncio.to_thread(self.revise, memory, recipe, news, now)

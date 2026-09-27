@@ -20,7 +20,7 @@ from datetime import datetime
 from rich.console import Console
 from rich.markup import escape
 
-from . import notify, state
+from . import deliver, state
 from .api import Effect, Page, RecipeError, Trigger
 from .gbrain import Brain, GBrainError, Stored
 from .jev import FIRES, WORTH_A_RECIPE, Jev
@@ -198,7 +198,9 @@ class Runtime:
                 memory, trigger = claims[key]
                 self.spawn(self.fire(memory, trigger, news=page))
             if gate:
-                if float(asked.values["worth"]) >= WORTH:
+                if fired:
+                    self.state.pages[page.slug].reviewed = stored.body_digest  # news for a memory, not a new one
+                elif float(asked.values["worth"]) >= WORTH:
                     await self.write_recipe(stored)
                 else:
                     self.state.pages[page.slug].reviewed = stored.body_digest
@@ -232,19 +234,22 @@ class Runtime:
 
         try:
             done = await asyncio.wait_for(asyncio.to_thread(run, trigger, memory.page, now, ask, news), 90)
-        except (RecipeError, TimeoutError) as e:
-            self.say("error", f"{escape(memory.page.title)} › {trigger.name}(): {escape(str(e) or 'timed out')}")
+        except Exception as e:
+            self.say("error", f"{escape(memory.page.title)} › {trigger.name}(): {escape(str(e) or type(e).__name__)}")
             return
         for page, question, answer in done.asked:
             text = getattr(question, "claim", None) or getattr(question, "question", "")
             self.say("jev", f"[dim]{escape(page.title)}: {escape(text)} → {answer}[/]")
         for effect in done.effects:
-            await self.apply(memory, effect)
+            try:
+                await self.apply(memory, effect)
+            except Exception as e:
+                self.say("error", f"{escape(memory.page.title)}: {effect.kind} failed: {escape(str(e))}")
 
     async def apply(self, memory: Memory, effect: Effect) -> None:
         if effect.kind == "notify":
             self.say("notify", f"[bold]{escape(memory.page.title)}[/]: {escape(effect.text)}")
-            await notify.send(memory.page.title, effect.text)
+            await deliver.send(memory.page.title, effect.text)
         elif effect.kind == "update":
             await self.update(memory.page.slug, effect.news)
 
@@ -260,7 +265,7 @@ class Runtime:
         async with self.lock(slug):
             self.say("river", f"[dim]reading {escape(stored.page.title)}…[/]")
             try:
-                draft = await self.river.awrite(stored.page, now, current)
+                draft = await self.river.awrite(stored.page, now, current, self.others(slug))
             except Exception as e:
                 self.say("error", f"River couldn't write a recipe for {escape(stored.page.title)}: {escape(str(e))}")
                 return
@@ -273,6 +278,9 @@ class Runtime:
             verb = "rewrote" if current else "wrote"
             self.say("river", f"{verb} a recipe for [bold]{escape(stored.page.title)}[/] [dim]({draft.seconds:.1f} s)[/]")
             self.show_triggers(slug)
+
+    def others(self, slug: str) -> list[Page]:
+        return [m.page for s, m in self.memories.items() if s != slug and m.recipe]
 
     async def update(self, slug: str, news: Page | None) -> None:
         if not self.river:
