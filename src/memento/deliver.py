@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 
@@ -30,11 +31,19 @@ async def banner(title: str, text: str) -> None:
     await asyncio.wait_for(proc.wait(), 10)
 
 
-def _push(url: str, title: str, text: str) -> None:
-    request = urllib.request.Request(
-        url, data=text.encode(), headers={"Title": title.encode().decode("latin-1", "replace"), "Tags": "brain"}
+def push_request(url: str, title: str, text: str) -> urllib.request.Request:
+    """An ntfy JSON publish (UTF-8 safe) for the topic URL https://host/<topic>."""
+    parts = urllib.parse.urlsplit(url)
+    body = {"topic": parts.path.strip("/"), "title": title, "message": text, "tags": ["brain"]}
+    return urllib.request.Request(
+        f"{parts.scheme}://{parts.netloc}/",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(request, timeout=10).read()
+
+
+def _push(url: str, title: str, text: str) -> None:
+    urllib.request.urlopen(push_request(url, title, text), timeout=10).read()
 
 
 async def send(title: str, text: str) -> None:
