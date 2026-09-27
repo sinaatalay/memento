@@ -1,0 +1,32 @@
+[project]
+name = "memento-memory"
+version = "0.1.0"
+description = "Memories that know when to come back. Local hackathon research prototype."
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic-ai-slim[typesafe,openai]>=1.0",
+  "pydantic>=2.11",
+  "PyYAML>=6.0",
+  "httpx>=0.28",
+  "fastapi>=0.115",
+  "uvicorn>=0.34",
+  "python-dotenv>=1.0",
+  "river-client>=0.12.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.25"]
+
+[project.scripts]
+memento = "memento.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memento"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
