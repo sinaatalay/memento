@@ -123,13 +123,17 @@ CASES = [
     (
         "churn-hypothesis",
         "a customer explains",
-        ["Interview with Bolt Labs (churned in Aug): 'Honestly it was the price. Our bill doubled.'"],
+        [
+            "Interview with Bolt Labs (churned in Aug): 'Honestly it was the price. Our bill doubled.'"
+        ],
         ["Interview with Tandem (active customer): they love the new dashboard."],
     ),
     (
         "owed-intro",
         "Maria Santos introduced",
-        ["Email from Maria Santos: Intro: you <> Devon (Head of Infra, Stripe). Devon, meet Sina..."],
+        [
+            "Email from Maria Santos: Intro: you <> Devon (Head of Infra, Stripe). Devon, meet Sina..."
+        ],
         ["Email from Maria Santos: Great seeing you yesterday! Let's grab dinner soon."],
     ),
 ]
@@ -167,7 +171,9 @@ def test_claims_with_real_jev(example, claim, fire, quiet):
     assert all(v < FIRES for v in stayed), list(zip(quiet, stayed, strict=True))
 
 
-@pytest.mark.skipif(not os.environ.get("TYPESAFE_API_KEY"), reason="live Jev check needs TYPESAFE_API_KEY")
+@pytest.mark.skipif(
+    not os.environ.get("TYPESAFE_API_KEY"), reason="live Jev check needs TYPESAFE_API_KEY"
+)
 def test_which_reads_the_churn_reason_with_real_jev():
     import asyncio
 

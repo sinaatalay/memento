@@ -25,6 +25,7 @@ from .api import Page
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?(.*)\Z", re.S)
 IGNORED = ("skills/", ".git/", ".obsidian/")  # GBrain's own skill pages are not memories
+TRANSIENT = ("owner_unavailable", "already open through", "timeout", "busy")
 
 
 @dataclass
@@ -125,7 +126,20 @@ class Brain:
 
     # ---- writing, through GBrain ----
 
-    async def call(self, operation: str, params: dict) -> dict:
+    async def call(self, operation: str, params: dict, attempts: int = 3) -> dict:
+        """Run one GBrain operation. Transient failures (the brain's owner is changing
+        hands, e.g. a chat's `gbrain serve` starting or exiting) are retried with the
+        identical request, request_id included, so GBrain replays rather than repeats."""
+        for attempt in range(1, attempts + 1):
+            try:
+                return await self._call(operation, params)
+            except GBrainError as e:
+                if attempt == attempts or not any(t in str(e) for t in TRANSIENT):
+                    raise
+                await asyncio.sleep(attempt)
+        raise AssertionError("unreachable")
+
+    async def _call(self, operation: str, params: dict) -> dict:
         async with self._lock:
             proc = await asyncio.create_subprocess_exec(
                 *self.command,

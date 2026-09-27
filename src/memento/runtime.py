@@ -309,7 +309,8 @@ class Runtime:
                     f"{escape(stored.page.title)} {verdict} [dim]({draft.seconds:.1f} s)[/]",
                 )
                 return
-            await self.write(slug, self.brain.set_recipe(slug, draft.recipe))
+            if not await self.write(slug, self.brain.set_recipe(slug, draft.recipe), draft.recipe):
+                return
             verb = "rewrote" if current else "wrote"
             self.say(
                 "river",
@@ -343,22 +344,29 @@ class Runtime:
                 )
                 await self.brain.set_recipe(slug, draft.recipe)
 
-            await self.write(slug, both())
+            if not await self.write(slug, both(), draft.recipe):
+                return
             self.say(
                 "river",
                 f"updated [bold]{escape(memory.page.title)}[/]: {escape(draft.note or '')} [dim]({draft.seconds:.1f} s)[/]",
             )
             self.show_triggers(slug)
 
-    async def write(self, slug: str, operation) -> None:
-        """Write to GBrain; the change that comes back from disk is ours, not news."""
+    async def write(self, slug: str, operation, recipe: str) -> bool:
+        """Write to GBrain; the change that comes back from disk is ours, not news.
+
+        True when the page on disk now carries `recipe`: GBrain can report an
+        error for a write that committed, and the page is what counts.
+        """
         self.writing.add(slug)
+        error = None
         try:
             await operation
         except GBrainError as e:
-            self.say("error", escape(str(e)))
+            error = e
         finally:
-            if stored := self.brain.read(slug):
+            stored = self.brain.read(slug)
+            if stored:
                 self.state.own[slug] = stored.digest
                 self.state.pages[slug] = state.PageState(
                     stored.digest, stored.body_digest, stored.recipe, stored.body_digest
@@ -368,6 +376,13 @@ class Runtime:
                 self.mtimes[slug] = path.stat().st_mtime if path.exists() else 0
             self.writing.discard(slug)
             self.state.save()
+        if stored and stored.recipe.strip() == recipe.strip():
+            return True
+        self.say(
+            "error",
+            f"couldn't save to {escape(slug)}: {escape(str(error or 'GBrain kept the old page'))}",
+        )
+        return False
 
     # ---- output ----
 

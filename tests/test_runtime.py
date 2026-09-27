@@ -249,3 +249,27 @@ def test_a_reminder_long_overdue_is_skipped(world):
 
     asyncio.run(at(datetime(2026, 9, 28, 7, 30, tzinfo=TZ)))  # 5:05 was 2h25m ago
     assert sent == []
+
+
+def test_a_transient_gbrain_error_is_retried_as_the_same_request(world, monkeypatch):
+    brain, _, _ = world
+    brain.put("notes/x", page("X", "body"))
+    seen = []
+    real = FakeBrain.call
+
+    async def flaky(self, operation, params):
+        seen.append((operation, params.get("request_id")))
+        if operation == "put_page" and len(seen) == 2:
+            from memento.gbrain import GBrainError
+
+            raise GBrainError("gbrain put_page: owner_unavailable")
+        return await real(self, operation, params)
+
+    monkeypatch.setattr(FakeBrain, "_call", flaky)
+    monkeypatch.setattr(FakeBrain, "call", Brain.call)
+    no_wait = asyncio.sleep
+    monkeypatch.setattr("asyncio.sleep", lambda seconds: no_wait(0))
+    asyncio.run(brain.set_recipe("notes/x", FLIGHT_RECIPE))
+    puts = [rid for op, rid in seen if op == "put_page"]
+    assert len(puts) == 2 and puts[0] == puts[1]
+    assert "recipe: |" in (brain.root / "notes/x.md").read_text()

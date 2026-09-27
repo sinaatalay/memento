@@ -185,5 +185,7 @@ def check():
     if not this.says("the side effects went away"):
         notify("Call Dr. Patel.")
 """
-    with pytest.raises(RecipeError, match=r"line 6: `this` is not defined \(import it from memento\)"):
+    with pytest.raises(
+        RecipeError, match=r"line 6: `this` is not defined \(import it from memento\)"
+    ):
         load(source, ME, NOW)
