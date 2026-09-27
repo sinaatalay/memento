@@ -26,7 +26,13 @@ def build_runtime(settings: Settings, *, use_gbrain=False):
         entry = settings.gbrain_checkout / "src/cli.ts"
         if not bun or not entry.exists():
             raise RuntimeError("GBrain checkout or Bun is missing; see research/gbrain.md")
-        brain = GBrain([bun, str(entry)], settings.gbrain_home)
+        if settings.gbrain_mcp_url:
+            from .gbrain_mcp import GBrainMCP
+            brain = GBrainMCP([bun, str(entry)], settings.gbrain_home,
+                              endpoint=settings.gbrain_mcp_url, token=settings.gbrain_mcp_token,
+                              credentials_file=settings.gbrain_mcp_credentials)
+        else:
+            brain = GBrain([bun, str(entry)], settings.gbrain_home)
     notifier = None
     if settings.email_recipient:
         from .email_notify import EmailNotifier
@@ -43,6 +49,9 @@ def main():
     serve.add_argument("--port", type=int, default=8877)
     serve.add_argument("--gbrain", action="store_true", help="Read and write GBrain memory pages")
     serve.add_argument("--google", action="store_true", help="Also sync the already-authorized Google source")
+    watch = sub.add_parser("watch", help="Run background memory watches without the web dashboard")
+    watch.add_argument("--gbrain", action="store_true", help="Read and write ordinary GBrain pages")
+    watch.add_argument("--google", action="store_true", help="Also sync the already-authorized Google source")
     collect_cmd = sub.add_parser("collect", help="Validate and inspect a recipe or Markdown memory")
     collect_cmd.add_argument("path", type=Path)
     sub.add_parser("doctor", help="Report configuration and check provider connections")
@@ -64,11 +73,27 @@ def main():
     if args.google:
         settings.gbrain_enabled = True
     runtime = build_runtime(settings, use_gbrain=args.gbrain)
+    if args.command == "watch":
+        try:
+            asyncio.run(watch_forever(runtime))
+        except KeyboardInterrupt:
+            pass
+        return
     print(f"Memento → http://127.0.0.1:{args.port}")
     print(f"Private local state: {settings.data_dir}")
     from .app import create_app
     import uvicorn
     uvicorn.run(create_app(runtime), host="127.0.0.1", port=args.port, log_level="warning")
+
+
+async def watch_forever(runtime):
+    print("Memento is watching GBrain. No dashboard or chat session is required.")
+    try:
+        await runtime.start()
+        await asyncio.Event().wait()
+    finally:
+        await runtime.stop()
+        runtime.store.close()
 
 
 async def doctor(settings: Settings):

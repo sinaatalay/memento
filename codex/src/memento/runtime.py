@@ -29,6 +29,13 @@ def trim_email(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(">"))[:16_000]
 
 
+def safe_page_slug(slug: str) -> bool:
+    """Mirror GBrain's letter/number/underscore-led, relative page segments."""
+    return isinstance(slug, str) and 0 < len(slug) <= 255 and bool(
+        re.fullmatch(r"\w[\w.-]*(?:/\w[\w.-]*)*", slug)
+    )
+
+
 class Runtime:
     def __init__(self, settings: Settings, store: Store, *, evaluator=None, writer=None, brain=None, notifier=None, google_intake=None):
         self.settings, self.store = settings, store
@@ -66,8 +73,8 @@ class Runtime:
         return active
 
     async def register_markdown(self, memory_id: str, markdown: str, *, write_brain=False, expected_revision: str | None = None, preserve_event_id: str | None = None) -> dict:
-        if not re.fullmatch(r"memories/(?:[a-zA-Z0-9_-]+/)*[a-zA-Z0-9_-]+", memory_id):
-            raise ValueError("memory id must be a safe slug below memories/")
+        if not safe_page_slug(memory_id) or memory_id.startswith("events/gmail/"):
+            raise ValueError("memory id must be a safe owner-page slug outside events/gmail/")
         async with self.memory_lock:
             current = self.store.memory(memory_id)
             def check_revision() -> None:
@@ -96,20 +103,28 @@ class Runtime:
                 "compiled": compiled.model_dump(mode="json"),
             }, sort_keys=True))
             if current and current["active"] and current["revision"] == revision and not current.get("error"):
-                return current
+                if write_brain and self.brain:
+                    await self._put_brain(memory_id, markdown)
+                check_revision()
+                self.store.refresh_memory_markdown(memory_id, markdown, recipe=fields["recipe"])
+                self._write_mirror(memory_id, markdown)
+                return self.store.memory(memory_id)
             if write_brain and self.brain:
                 await self._put_brain(memory_id, markdown)
             check_revision()
             record = {"id": memory_id, **fields, "markdown": markdown, "compiled": compiled.model_dump(mode="json"), "revision": revision, "active": not self.store.setting(f"manual_stop:{memory_id}", False)}
             self.store.save_memory(record, preserve_event_id=preserve_event_id)
-            mirror = self.settings.data_dir / f"{memory_id}.md"
-            mirror.parent.mkdir(parents=True, exist_ok=True)
-            temp = mirror.with_suffix(".tmp")
-            temp.write_text(markdown)
-            temp.chmod(0o600)
-            temp.replace(mirror)
+            self._write_mirror(memory_id, markdown)
             self.store.trace("memory", f"{'Updated' if current else 'Remembered'}: {fields['title']}", {"memory_id": memory_id, "reminders": len(compiled.reminders), "triggers": len(compiled.triggers)})
             return record
+
+    def _write_mirror(self, memory_id: str, markdown: str) -> None:
+        mirror = self.settings.data_dir / f"{memory_id}.md"
+        mirror.parent.mkdir(parents=True, exist_ok=True)
+        temp = mirror.with_suffix(".tmp")
+        temp.write_text(markdown)
+        temp.chmod(0o600)
+        temp.replace(mirror)
 
     async def _put_brain(self, memory_id: str, markdown: str) -> None:
         intent_key = f"gbrain_write:{memory_id}:{digest(markdown)}"
@@ -310,7 +325,10 @@ class Runtime:
             else:
                 # Stable across model retries even if its generated title changes.
                 memory_id = f"memories/{'demo/' if event.get('demo') else ''}event-{digest(event.get('id', json.dumps(event)))[:16]}"
-            markdown = render_memory(draft.title, draft.body, draft.recipe, draft.sources)
+            markdown = render_memory(
+                draft.title, draft.body, draft.recipe, draft.sources,
+                original_markdown=existing["markdown"] if existing else None,
+            )
             memory = await self.register_markdown(
                 memory_id, markdown, write_brain=True,
                 expected_revision=existing["revision"] if existing else None,
@@ -419,6 +437,9 @@ class Runtime:
         if not self.brain:
             return
         try:
+            # An editor or another agent can author ordinary Markdown directly.
+            # Import uncommitted saves into the page index before reconciling it.
+            await self.brain.sync(source="default", working_tree=True)
             if self.settings.gbrain_enabled:
                 await self.brain.sync(source="google")
                 if self.google_intake:
@@ -443,7 +464,10 @@ class Runtime:
             for row in pages:
                 slug, source = row["slug"], row.get("source_id", "default")
                 google_event = source == "google" or (source == "default" and slug.startswith("events/gmail/"))
+                owner_page = source == "default" and not google_event and safe_page_slug(slug)
                 if google_event and not self.settings.gbrain_enabled:
+                    continue
+                if not owner_page and not google_event:
                     continue
                 updated = row.get("updated_at")
                 changed = max(filter(None, (updated, row.get("deleted_at"))), default=None)
@@ -454,13 +478,13 @@ class Runtime:
                 if self.store.setting(seen_key) == fingerprint and slug not in missing_revisions:
                     continue
                 if row.get("deleted_at"):
-                    if slug.startswith("memories/") and source == "default":
+                    if source == "default" and self.store.memory(slug):
                         self.store.deactivate(slug)
                     self.store.set_setting(seen_key, fingerprint)
                     continue
                 page = await self.brain.get_page(slug, source=source)
                 content = page.get("content") or page.get("body") or ""
-                if slug.startswith("memories/") and source == "default":
+                if owner_page:
                     try:
                         await self.register_markdown(slug, content)
                         self.store.set_setting(f"gbrain_revision:{slug}", page.get("revision"))
@@ -484,7 +508,7 @@ class Runtime:
 
     def _safe_error(self, exc: Exception) -> str:
         text = str(exc)
-        for secret in (self.settings.jev_api_key, self.settings.river_api_key):
+        for secret in (self.settings.jev_api_key, self.settings.river_api_key, self.settings.gbrain_mcp_token):
             if secret:
                 text = text.replace(secret, "[redacted]")
         return text[:2000]

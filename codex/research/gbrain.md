@@ -296,3 +296,88 @@ receipts were independently checked against Gmail using read-only requests:
 both notification headers were intact. This verification sent no additional
 messages. The sanitized receipt checks are retained privately in
 `.context/memento/demo-email-verification.json`.
+
+The later ordinary-page demo also delivered its single labeled availability
+alert. Independent read-only Gmail verification confirmed SENT, INBOX, the
+owner recipient, and both notification headers. That verification sent no
+additional messages; its private result is
+`.context/memento/page-memory-email-verification.json`.
+
+## Shared local MCP owner
+
+A single `gbrain serve --http` process owns PGLite. The initial shared owner
+used the unmodified pinned checkout; the optional connector compatibility
+worktree described below now serves the local demo. It binds
+only to `127.0.0.1:3131`, with dynamic client registration disabled and a
+private, stable owner bootstrap credential. No public tunnel is involved.
+Memento and an external assistant can use this same HTTP process concurrently.
+
+The supported provisioning path is `mcp grant`, rather than legacy
+`auth create`. The machine grant uses `--harness generic --profile
+memory-writer --source default --federated-read default,google --skills
+memory-only`. This grants reads across both sources and writes only to
+`default`. The private handoff contains a client ID, renewable client secret,
+access token, and Unix-second expiry; it is written with mode 0600. After the
+owner starts, passing `--admin-token-file` sends grant administration over
+HTTP without opening a second PGLite connection. The owner credential is
+separate from the machine bearer token and never belongs in client config.
+
+Empirical `mcp verify` passed transport, authentication, permissions, read,
+write, readback, and cleanup. The starter surface exposed **30 tools** from
+the **98-operation** read/write grant. Its overall status is `partial` solely
+because an SDK probe cannot verify a native assistant session; that distinction
+must remain visible. No delegated model work or email was sent during this
+probe. The temporary verification fact was withdrawn by the upstream verifier.
+
+The grant and token exchange are supported by upstream
+[provisioning](https://github.com/garrytan/gbrain/blob/e78f1c38b947b053f3a46881340f74f316be855a/src/commands/mcp-provision.ts)
+and [private credential handling](https://github.com/garrytan/gbrain/blob/e78f1c38b947b053f3a46881340f74f316be855a/src/core/harness/credentials.ts).
+Refresh posts `grant_type=client_credentials`, `client_id`, and `client_secret`
+as form data to the same-origin `/token` endpoint. The owner procedure is in
+[the upstream administration guide](https://github.com/garrytan/gbrain/blob/e78f1c38b947b053f3a46881340f74f316be855a/docs/mcp/ADMIN.md).
+
+A separate live probe found a limitation in this pinned release: local CLI
+`sync` correctly delegates to the resident persistence owner, but returns
+`storage_error` for both our non-Git source directories, including a dry run.
+The managed delegation path calls `performManagedSync` directly, bypassing
+`performSync`'s Google connector dispatch and entering Git discovery instead.
+`resolveManagedSyncContext` runs `git rev-parse` against the connector directory
+before its typed connector check. Ordinary MCP page reads and writes work.
+The default source's separate issue was resolved by initializing an empty local
+Git baseline and using `--working-tree --exclude 'skills/**'`. No personal
+Markdown files were committed or pushed. Skills use GBrain's separate bundle
+publication mechanism. The live owner then completed default sync in
+**4.023 seconds**, with no model calls.
+
+The Google dispatcher issue required a small compatibility patch. It lives in
+a detached worktree at the same pin; the original checkout remains clean.
+[The patch and reproduction instructions](../compat/README.md) are included in
+this repository. After the existing trusted CLI registration, source grant,
+archived-source, and submission-authority checks, Google sources enter the
+existing `performSync` managed connector dispatch. All other managed sources
+keep their existing bounded Git path. A synthetic Calendar regression also
+checks rejection of unregistered and stdio callers before network access.
+It and the upstream resident-owner suite passed **11 tests, 78 assertions**.
+
+After a clean owner restart, the **actual Google source synced successfully**
+through the original CLI and patched HTTP owner in **6.341 seconds**, importing
+**15 new pages**, with **zero embeddings and zero failures**. A subsequent
+default working-tree sync completed in **5.132 seconds** with no changes.
+The source connector, Google token provider, scopes, data format, and MCP
+client grants remain unchanged. This verifies both shared storage and native
+Gmail/Calendar ingestion while the shared owner holds PGLite. It does not
+claim that the unmodified release's managed connector delegation works.
+
+## Existing proactive features upstream
+
+GBrain already includes a deterministic Gmail thread-state machine for
+unanswered inbound and outbound messages, optional model extraction of
+commitments, and `waiting`/open-loop surfaces. Its documented scheduling
+tools include dream cycles, autopilot, queued jobs, and morning briefings.
+These are documented upstream in
+[open loops](https://github.com/garrytan/gbrain/blob/e78f1c38b947b053f3a46881340f74f316be855a/docs/guides/open-loops.md)
+and [the reference schedule](https://github.com/garrytan/gbrain/blob/e78f1c38b947b053f3a46881340f74f316be855a/docs/guides/cron-schedule.md).
+Memento's distinction is an optional executable recipe attached to each
+ordinary memory, with semantic conditions, explicit lifecycle changes, and
+durable self-email delivery. It should not be described as introducing all
+background work or reminders to an otherwise entirely passive GBrain.

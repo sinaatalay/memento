@@ -12,7 +12,7 @@ import pytest
 from memento.collector import RecipeError, collect
 from memento.memory import render_memory
 from memento.providers import DecisionAnswer, DecisionBatch
-from memento.runtime import Runtime, StaleMemoryError
+from memento.runtime import Runtime, StaleMemoryError, safe_page_slug
 from memento.settings import Settings
 from memento.storage import Store
 from memento.writer import MemoryDraft
@@ -445,6 +445,25 @@ async def test_canonical_front_matter_changes_do_not_invalidate_behavior(runtime
 
 
 @pytest.mark.asyncio
+async def test_external_metadata_only_edit_persists_without_rotating_behavior(runtime):
+    memory_id = "projects/acme.v1"
+    original = await register(runtime, recipe=REMINDER, memory_id=memory_id)
+    await runtime.tick()
+    revised = original["markdown"].replace(
+        "---\n", "---\ntags: [pilot, important]\nowner: Maya\n", 1
+    )
+    updated = await runtime.register_markdown(memory_id, revised)
+    assert updated["revision"] == original["revision"]
+    assert updated["markdown"] == revised
+    assert runtime.store.memory(memory_id)["markdown"] == revised
+    assert (runtime.settings.data_dir / f"{memory_id}.md").read_text() == revised
+    notification = runtime.store.notifications()[0]
+    assert notification["memory_revision"] == original["revision"]
+    assert notification["status"] == "pending"
+    assert len(runtime.store.memories()) == 1
+
+
+@pytest.mark.asyncio
 async def test_demo_events_and_clock_are_isolated_from_live_memories(runtime):
     runtime.evaluator = FakeEvaluator()
     await register(runtime, memory_id="memories/live-flight")
@@ -683,14 +702,14 @@ async def test_memory_only_sync_never_ingests_google_pages(runtime):
     })
     await runtime.sync_brain()
     assert runtime.brain.gets == [("default", "memories/synced")]
-    assert runtime.brain.syncs == []
+    assert runtime.brain.syncs == [{"source": "default", "working_tree": True}]
     assert runtime.store.events() == []
     assert runtime.store.memory("memories/synced") is not None
 
 
 @pytest.mark.asyncio
 async def test_delete_and_restore_without_updated_at_change_are_reconciled(runtime):
-    slug = "memories/lifecycle"
+    slug = "projects/lifecycle"
     page = {"slug": slug, "source_id": "default", "updated_at": "2026-09-27T20:00:00Z",
             "revision": "r1", "content": render_memory("Lifecycle", "A plan", REMINDER, [])}
 
@@ -720,6 +739,66 @@ async def test_delete_and_restore_without_updated_at_change_are_reconciled(runti
     assert len(runtime.brain.gets) == 2
     await runtime.sync_brain()
     assert len(runtime.brain.gets) == 2  # Stable metadata does not re-read bodies.
+
+
+@pytest.mark.parametrize("slug", ["notes/trip", "projects/v1.0", "people/my_file", "_index", "生活/明日"])
+def test_ordinary_canonical_page_slugs_are_safe(slug):
+    assert safe_page_slug(slug)
+
+
+@pytest.mark.parametrize("slug", ["../outside", "notes/../outside", "/absolute", "notes//gap", "notes/.hidden", "notes/back\\slash", "notes/%2e%2e", "notes/white space", "a" * 256])
+def test_page_slugs_cannot_escape_memory_mirror(slug):
+    assert not safe_page_slug(slug)
+
+
+@pytest.mark.asyncio
+async def test_external_owner_page_lifecycle_never_creates_a_duplicate_capture(runtime):
+    slug = "notes/trip.v1"
+    page = {
+        "slug": slug, "source_id": "default", "updated_at": "2026-09-27T20:00:00Z",
+        "revision": "r1", "content": "# A normal note\nAn ordinary saved preference.",
+    }
+    runtime.brain = FakeBrain({slug: page})
+    runtime.evaluator, runtime.writer = FakeEvaluator(gate=0.99), FakeWriter()
+    await runtime.sync_brain()
+    assert runtime.store.memory(slug)["compiled"] == {"reminders": [], "triggers": [], "expires_at": None}
+    assert runtime.brain.syncs == [{"source": "default", "working_tree": True}]
+
+    # Another tool adds the optional recipe to its existing page in place.
+    page.update(content=render_memory("A normal note", "Flight tomorrow.", REMINDER, []),
+                revision="r2", updated_at="2026-09-27T20:01:00Z")
+    await runtime.sync_brain()
+    await runtime.tick()
+    assert len(runtime.store.memory(slug)["compiled"]["reminders"]) == 1
+    assert runtime.store.notifications()[0]["status"] == "pending"
+
+    # Removing just the optional recipe keeps the page and stops its behavior.
+    page.update(content="# A normal note\nThe flight was canceled.",
+                revision="r3", updated_at="2026-09-27T20:02:00Z")
+    await runtime.sync_brain()
+    assert runtime.store.notifications()[0]["status"] == "canceled"
+    assert runtime.store.memory(slug)["compiled"]["reminders"] == []
+    assert [m["id"] for m in runtime.store.memories()] == [slug]
+    assert runtime.store.events() == []
+    assert runtime.evaluator.calls == [] and runtime.writer.calls == []
+
+
+@pytest.mark.asyncio
+async def test_only_default_owner_pages_are_registered_and_authored_paths_are_not_invented(runtime):
+    pages = [
+        {"slug": "chats/an-interest", "source_id": "default"},
+        {"slug": "projects/a-plan", "source_id": "default"},
+        {"slug": "projects/other-account", "source_id": "other"},
+        {"slug": "events/gmail/import", "source_id": "default"},
+    ]
+    runtime.brain = FakeBrain({p["slug"]: {
+        **p, "updated_at": "2026-09-27T20:00:00Z", "revision": "r1",
+        "content": render_memory("A page", "Useful information", "", []),
+    } for p in pages})
+    await runtime.sync_brain()
+    assert {m["id"] for m in runtime.store.memories()} == {"chats/an-interest", "projects/a-plan"}
+    assert runtime.store.events() == []
+    assert {slug for _, slug in runtime.brain.gets} == {"chats/an-interest", "projects/a-plan"}
 
 
 @pytest.mark.asyncio
@@ -757,6 +836,7 @@ async def test_enabled_google_sync_uses_normalized_deduplicated_events(runtime):
     await runtime.sync_brain()
     events = runtime.store.events()
     assert runtime.google_intake.polled == 1
+    assert runtime.brain.syncs == [{"source": "default", "working_tree": True}, {"source": "google"}]
     assert len(events) == 2  # Same Gmail message across both sources, once.
     email = next(e for e in events if e["source"] == "email")
     assert email["payload"]["text"] == "New departure time"

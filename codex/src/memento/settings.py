@@ -17,6 +17,9 @@ class Settings(BaseModel):
     timezone: str = "America/Los_Angeles"
     sync_seconds: float = 20.0
     gbrain_enabled: bool = False
+    gbrain_mcp_url: str = ""
+    gbrain_mcp_token: str = Field(default="", repr=False)
+    gbrain_mcp_credentials: Path | None = Field(default=None, repr=False)
     gbrain_checkout: Path = Path.home() / ".local/share/memento-gbrain-research/checkout"
     gbrain_home: Path = Path.home() / ".local/share/memento-gbrain-research/home"
 
@@ -37,6 +40,9 @@ class Settings(BaseModel):
             timezone=os.getenv("MEMENTO_TIMEZONE", "America/Los_Angeles"),
             sync_seconds=float(os.getenv("MEMENTO_SYNC_SECONDS", "20")),
             gbrain_enabled=os.getenv("MEMENTO_GBRAIN_ENABLED", "0") == "1",
+            gbrain_mcp_url=os.getenv("MEMENTO_GBRAIN_MCP_URL", ""),
+            gbrain_mcp_token=os.getenv("MEMENTO_GBRAIN_MCP_TOKEN", ""),
+            gbrain_mcp_credentials=Path(os.environ["MEMENTO_GBRAIN_MCP_CREDENTIALS"]) if os.getenv("MEMENTO_GBRAIN_MCP_CREDENTIALS") else None,
             gbrain_checkout=Path(os.getenv("MEMENTO_GBRAIN_CHECKOUT", str(cls.model_fields["gbrain_checkout"].default))),
             gbrain_home=Path(os.getenv("MEMENTO_GBRAIN_HOME", str(cls.model_fields["gbrain_home"].default))),
         )

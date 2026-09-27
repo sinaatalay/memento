@@ -10,24 +10,75 @@ without a recipe remains useful knowledge; it simply has no background watch.
 context, and durable facts should remain normal memories that an assistant can
 retrieve even when there is nothing to schedule or monitor.
 
-The intended experience lives alongside the user's existing assistant and
-memory system. The current web interface exposes memories, decisions, recipes,
-and delivery receipts, and supplies test events. It is the demo's observation
-and debugging surface. Integration into a particular assistant's conversation
-requires its own adapter; no general plugin or ChatGPT integration is claimed.
+The product is a **proactivity extension for GBrain**, packaged as a local daemon
+plus an agent authoring skill. Keep talking to the assistant you already use.
+Keep its normal GBrain pages. Add optional behavior to those same pages.
+The web interface is a demo inspector showing recipes, decisions, and delivery
+receipts. `memento watch --gbrain --google` runs without that interface.
 
 ## Who creates the memory and its behavior?
 
-The same agent creates both. In this prototype, Gmail and Calendar become
-source pages in unmodified GBrain. Dashboard chat provides another source.
-Jev decides whether a new observation contains something worth remembering.
-River then writes the body, provenance, and recipe through PydanticAI. The
-recipe must compile and pass validation before the memory is stored.
+There are two paths, with different responsibilities:
 
-The user does not need to write Python. They can inspect the generated recipe
-alongside its source and edit the Markdown. Other agents could author the same
-format through GBrain's ordinary page interface; automatic integration with
-every existing assistant is not part of this demo.
+1. **An existing agent or person writes a memory.** It is already an intentional
+   memory; Memento does not ask Jev whether it deserves to exist. An ordinary
+   default-source page at any safe slug can be passive or carry a recipe. A file
+   edit or GBrain `put_page` changes that same page, without making another copy.
+   The [authoring skill](../skills/memento/SKILL.md) teaches the existing agent
+   how to add behavior while preserving the page's content and metadata.
+2. **Optional automatic capture from incoming events.** Gmail, Calendar, or
+   explicitly forwarded chat can contain new information. Jev scores whether
+   the event contains an affirmed fact, booking, commitment, deadline, or request
+   to remember. At the configured threshold (currently .8), River writes a
+   sourced memory and recipe through PydanticAI. This is an ingestion adapter,
+   not the definition of a Memento memory.
+
+The user does not need to write Python. The agent saving the memory can also
+write the recipe; River is not its mandatory author. Every recipe is compiled
+and validated before it is activated. River is required when a recipe chooses
+the generative `rewrite(this)` action. Timed reminders do not need an LLM call
+when they fire. Unknown front matter such as tags, type, and custom fields is
+preserved during Memento rewrites.
+
+GBrain has both Markdown pages and structured fact rows. This implementation
+extends pages. It does not claim to attach recipes to every standalone fact
+created by GBrain's `remember`/`extract_facts` operations. That would need an
+explicit fact-to-page or fact-recipe bridge.
+
+## Existing assistants, rather than a new chat destination
+
+GBrain recommends [adding memory to an existing coding agent](https://github.com/garrytan/gbrain/blob/master/docs/tutorials/connect-coding-agent.md).
+Its Claude Code and Codex plugins package MCP tools and skills. The same
+`get_page`/`put_page` interface used by those agents is used by Memento's shared
+HTTP adapter. One GBrain server owns local PGLite; the daemon and agent clients
+share it. Running separate permanent stdio owners against that database fails.
+
+Calling Memento a "GBrain extension" describes the product well. The verified
+packaging is an adjacent daemon plus skill, not a registered generic plugin
+inside GBrain. Native GBrain job handlers are another extension path, but this
+demo does not run the Python engine inside that worker.
+
+GBrain [documents a ChatGPT connection](https://github.com/garrytan/gbrain/blob/master/docs/mcp/CHATGPT.md)
+through public HTTPS MCP and OAuth/PKCE. Our demo stays local. We have verified
+MCP transport and canonical page sharing, not a live ChatGPT session. Attaching
+MCP also does not automatically stream every chat utterance to Memento.
+Ordinary recall belongs to the existing assistant; `surface(this)` needs an
+explicit chat adapter and is not the headline product claim.
+
+## What distinguishes this from existing memory?
+
+"Ask about breakfast; the assistant remembers your flight" is ordinary recall.
+Keep it as a compatibility check, not the novel demo. The stronger sequence is:
+save a normal memory, stop chatting, receive a relevant external event or reach
+a deadline, and get an unsolicited, justified notification tied to that memory.
+
+GBrain itself already has [open-loop tracking](https://github.com/garrytan/gbrain/blob/master/docs/guides/open-loops.md),
+commitment extraction, and scheduled background jobs. It would be inaccurate to
+describe the whole ecosystem as passive. Memento's design contribution is a
+portable, inspectable behavior recipe attached to each ordinary memory:
+specific semantic conditions, deterministic scheduling, and a persisted action
+lifecycle. That is the hypothesis the demo tests; it is not a claim that no
+other product can send proactive reminders.
 
 ## What runs continuously?
 
@@ -84,6 +135,22 @@ actionable; someone becoming available connects to an earlier request.
 
 ## What the demo establishes
 
+The primary demo now starts with a page authored by a separate agent using the
+Memento skill and written by an independent MCP client at `projects/demo/...`.
+It first registers with no recipe. Adding the recipe activates the same page.
+A synthetic roadmap email causes no alert or rewrite; a synthetic confirmed
+SSO release triggers one real owner email and a same-page update in **12.17s**.
+The updated page keeps its type, tags, custom metadata, pricing context, and
+unfinished promise to Maya, while retiring the fulfilled shipment watch. The
+email was independently verified in Gmail's Sent and Inbox. No chat turn was
+part of this sequence.
+
+A separate direct-file test created `notes/demo/...` in the canonical memory
+folder, added a future reminder recipe, and removed it again. Working-tree sync
+observed all three forms; the body and custom metadata survived; removing the
+recipe stopped the watch. No event capture or external notification was needed.
+Both tests exercise first-class pages outside Memento's own creation path.
+
 The complete synthetic flight sequence uses real Jev and River calls: create a
 memory, reject an unrelated event, surface context in chat, recognize a schedule
 change, rewrite the memory, and deliver a due reminder. Synthetic events and the
@@ -99,3 +166,9 @@ running for monitoring and delivery. The dashboard shows memories, recipes,
 decisions, and outcomes; Gmail reaches the user's inbox. This is a functioning
 local prototype, with the recipe format as the portable connection between
 remembered knowledge and future behavior.
+
+The current shared-server demo includes a small compatibility patch for the
+pinned GBrain release's native Google sync dispatch. It is tested in a separate
+checkout; the original stays clean. See [the exact patch and evidence](../compat/README.md).
+This is an integration finding, not a claim of a zero-configuration plugin
+installation across all assistant products.

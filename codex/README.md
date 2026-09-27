@@ -3,10 +3,16 @@
 Memories that know when to come back. A local, working research prototype for
 the Own Your Intelligence hackathon.
 
-Memento stores ordinary Markdown with a Python recipe in its YAML front matter.
-The recipe registers reminders and semantic event conditions. Jev evaluates all
-relevant conditions in one typed request; River writes and repairs recipes.
-Both model paths run through PydanticAI. There is no OpenRouter dependency.
+Memento adds proactive behavior to ordinary GBrain Markdown pages. The existing
+assistant, a person, or an ingestion pipeline can write a memory. An optional
+Python recipe in its YAML front matter registers reminders and semantic event
+conditions. Jev evaluates matching conditions; River handles optional automatic
+capture and generative updates. Both model paths run through PydanticAI.
+There is no OpenRouter dependency.
+
+Keep using your existing assistant. The local web page is an inspector and demo
+console, not a required chat destination. See the [product decisions](research/product.md)
+and the portable [agent authoring skill](skills/memento/SKILL.md).
 
 ## Run locally
 
@@ -29,11 +35,17 @@ The local GBrain installation is isolated outside this repository. To use it:
 uv run memento serve --gbrain --port 8877
 # Also sync the already-authorized read-only Gmail and Calendar source:
 uv run memento serve --gbrain --google --port 8877
+# Background watches without the web UI:
+uv run memento watch --gbrain --google
 ```
 
-No Contacts scope is requested. The GBrain adapter serializes CLI operations
-across processes because its PGLite database has one owner. Do not run
-`gbrain serve` against the same installation.
+No Contacts scope is requested. PGLite has one owner. Standalone mode serializes
+CLI operations and must not run alongside a separate `gbrain serve`. To share
+one running GBrain HTTP server with existing agents, configure
+`MEMENTO_GBRAIN_MCP_URL` and `MEMENTO_GBRAIN_MCP_CREDENTIALS` (a private renewable
+client handoff). Memento then uses ordinary MCP page tools with revision checks.
+The [integration research](research/gbrain.md) records the tested setup and
+upstream compatibility findings.
 
 Set `MEMENTO_EMAIL_TO` in the private env file to your connected Gmail account.
 Authorize the additional `gmail.send` scope once; Memento uses the same local
@@ -42,6 +54,26 @@ the dashboard. Historical experiment notifications are kept local when email
 is first enabled, so connecting delivery does not flood your inbox.
 
 ## Try the demo
+
+The headline demonstration should require **no chat request after remembering**:
+an agent writes an ordinary project note about following up when SSO ships;
+a roadmap announcement does nothing; an actual release causes an unsolicited
+owner email and updates the same note. Its tags, page identity, and unrelated
+metadata survive. That demonstrates the proactive extension directly.
+
+With the shared MCP owner and Memento running, reproduce it with:
+
+```sh
+uv run python scripts/verify_page_memory.py --page-file examples/acme-page.md \
+  --report-file ../.context/memento/page-memory-report.json
+```
+
+This writes through a separate GBrain MCP client, verifies both passive and
+active forms of the same page, sends two synthetic source events, and checks
+one clearly labeled demo email. It pauses older synthetic watches first.
+
+The flight sequence is also available in the inspector. Breakfast recall is a
+compatibility check; regular memory systems can do that too.
 
 1. Choose **Flight confirmation** and send the event. This is explicitly a
    synthetic event; Jev and River calls are real.
@@ -52,7 +84,7 @@ is first enabled, so connecting delivery does not flood your inbox.
 6. Advance the demo clock until a reminder is due. Repeated ticks do not
    duplicate the notification.
 
-Demo events and clock changes are isolated to `memories/demo/`. Real Google
+Demo events and clock changes are isolated to page paths containing `/demo/`. Real Google
 events and their reminders use the real clock. **Stop watching** disables a
 memory's recipe and cancels its pending notifications.
 
@@ -85,7 +117,11 @@ recipe: |
 
   on(
       email,
-      when=noul("Does this confirm our SSO feature has shipped?"),
+      when=noul(
+          "Does this confirm our SSO feature has shipped?",
+          true="SSO is available to customers now.",
+          false="A roadmap, proposal, or unfinished implementation.",
+      ),
       do=alert("SSO shipped. Follow up with Maya at Acme."),
   )
 ---
@@ -110,8 +146,10 @@ customer follow-ups, and introductions.
   or past reminders before storing them.
 - SQLite event and notification ledger, recovery, memory revision checks,
   independent clock processing, cancellation, and delivery serialization.
-- Unmodified local GBrain with revision-safe writes, CLI locking, pagination,
-  incremental polling, and Markdown recipes verified on disk.
+- Ordinary GBrain pages with revision-safe writes, shared HTTP MCP or serialized
+  CLI access, paginated metadata reconciliation, and recipes verified on disk.
+- Working-tree edits, optional recipes, canonical metadata preservation, and an
+  authoring skill for the agent that already writes the user's memory.
 - Gmail self-notifications, plus a local dashboard with
   memories, recipes, evidence, probabilities, latency, and clock controls.
 

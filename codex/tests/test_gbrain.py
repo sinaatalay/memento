@@ -54,6 +54,19 @@ print(json.dumps({'state': 'committed', 'revision': 'next'}))
     assert result == {"state": "committed", "revision": "next"}
 
 
+@pytest.mark.parametrize("working_tree", [False, True])
+async def test_default_source_sync_imports_working_tree_only_when_requested(tmp_path, working_tree):
+    command = fake_cli(tmp_path, f"""
+import json, sys
+assert sys.argv[1:4] == ['sync', '--source', 'default']
+assert all(flag in sys.argv for flag in ['--no-embed', '--no-extract', '--no-pull', '--json'])
+assert ('--working-tree' in sys.argv) == {working_tree!r}
+print(json.dumps({{'synced': True}}))
+""")
+    brain = GBrain(command, tmp_path / "home")
+    assert await brain.sync(source="default", working_tree=working_tree) == {"synced": True}
+
+
 async def test_separate_instances_serialize_pglite_ownership(tmp_path):
     command = fake_cli(tmp_path, """
 import json, os, pathlib, time

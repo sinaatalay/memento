@@ -96,6 +96,11 @@ class Store:
         with self.db:
             self.db.execute("INSERT INTO traces(kind,title,detail,created_at) VALUES(?,?,?,?)", (kind, title, encode(detail or {}), stamp()))
 
+    def refresh_memory_markdown(self, memory_id: str, markdown: str, *, recipe: str | None = None) -> None:
+        """Keep canonical metadata edits without resetting unchanged behavior."""
+        with self.db:
+            self.db.execute("UPDATE memories SET markdown=?, recipe=COALESCE(?,recipe), updated_at=? WHERE id=?", (markdown, recipe, stamp(), memory_id))
+
     def save_memory(self, memory: dict, *, preserve_event_id: str | None = None) -> None:
         with self.db:
             self.db.execute("""INSERT OR REPLACE INTO memories

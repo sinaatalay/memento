@@ -1,0 +1,25 @@
+diff --git a/src/core/persistence/sync-administration.ts b/src/core/persistence/sync-administration.ts
+index f40ac93..e0d35a9 100644
+--- a/src/core/persistence/sync-administration.ts
++++ b/src/core/persistence/sync-administration.ts
+@@ -12,7 +12,7 @@ export async function runAuthenticatedSyncSlice(engine: BrainEngine, params: Rec
+   if(!verified||verified.remote||verified.principal.kind!=='local_cli')throw new OperationError('permission_denied','Sync requires a current trusted CLI registration.');
+   const wire=validateSyncWireParams(params);
+   const sourceId=await resolveSourceId(engine,wire.options.sourceId??null,wire.cwd,{skipLocalSignals:true});
+-  const [source]=await engine.executeRaw<{incarnation:string;archived:boolean}>('SELECT incarnation,archived FROM sources WHERE id=$1',[sourceId]);
++  const [source]=await engine.executeRaw<{incarnation:string;archived:boolean;kind:string|null}>("SELECT incarnation,archived,config->>'kind' AS kind FROM sources WHERE id=$1",[sourceId]);
+   if(!source||source.archived)throw new OperationError('source_changed','The selected sync source is unavailable.');
+   await submissionAuthority({engine,remote:false,sourceId} as OperationContext,'submit_job',sourceId,source.incarnation,'__managed_sync_checkpoint__');
+   const controller=new AbortController();
+@@ -23,7 +23,10 @@ export async function runAuthenticatedSyncSlice(engine: BrainEngine, params: Rec
+   try {
+     work=(async()=>{
+       const [brain]=await engine.executeRaw<{enabled:boolean}>('SELECT enabled FROM persistence_brain WHERE singleton=1');
+-      if(!brain?.enabled) {
++      // Google connectors must use performSync's managed connector dispatch;
++      // performManagedSync below discovers Git working-tree files only.
++      // The trusted CLI registration and source grant checks above still apply.
++      if(!brain?.enabled || source.kind==='google') {
+         const {performSync}=await import('../../commands/sync.ts');
+         // Delegation bypasses runSync's inline embedding cost/config gate.
+         // Preserve import-only publication; the owner drains accepted embeds.

@@ -17,30 +17,44 @@ def _string(dumper, value):
 LiteralDumper.add_representer(str, _string)
 
 
-def render_memory(title: str, body: str, recipe: str, sources: list[str]) -> str:
-    front = yaml.dump({"title": title, "sources": sources, "recipe": recipe}, Dumper=LiteralDumper, sort_keys=False, allow_unicode=True, width=78)
+def render_memory(title: str, body: str, recipe: str, sources: list[str], *, original_markdown: str | None = None) -> str:
+    # A recipe extends an ordinary page. Updating it must not discard tags,
+    # type, ownership, or other metadata maintained by another agent.
+    metadata, _ = split_markdown(original_markdown) if original_markdown else ({}, "")
+    metadata.update({"title": title, "sources": sources, "recipe": recipe})
+    front = yaml.dump(metadata, Dumper=LiteralDumper, sort_keys=False, allow_unicode=True, width=78)
     return f"---\n{front}---\n\n{body.strip()}\n"
 
 
-def parse_memory(markdown: str) -> dict:
+def split_markdown(markdown: str) -> tuple[dict, str]:
     normalized = markdown.replace("\r\n", "\n")
     if not normalized.startswith("---\n"):
-        return {"title": "Untitled memory", "body": normalized.strip(), "recipe": "", "sources": []}
-    parts = normalized.split("\n---", 2)
-    if len(parts) < 2:
+        return {}, normalized.strip()
+    match = re.fullmatch(r"---\n(.*?)\n---[ \t]*(?:\n|$)(.*)", normalized, re.DOTALL)
+    if not match:
         raise ValueError("memory front matter is missing its closing ---")
-    metadata = yaml.safe_load(parts[0][4:]) or {}
+    metadata = yaml.safe_load(match.group(1)) or {}
     if not isinstance(metadata, dict):
         raise ValueError("memory front matter must be a mapping")
+    return metadata, match.group(2).strip()
+
+
+def parse_memory(markdown: str) -> dict:
+    metadata, body = split_markdown(markdown)
     recipe = metadata.get("recipe", "")
+    if recipe is None:
+        recipe = ""
     if not isinstance(recipe, str):
         raise ValueError("recipe must be a Python source string")
-    sources = metadata.get("sources", [])
+    sources = metadata.get("sources") or []
     if isinstance(sources, str):
         sources = [sources]
+    if not isinstance(sources, list):
+        raise ValueError("sources must be a list of source IDs")
+    heading = re.search(r"^#\s+(.+?)\s*#*\s*$", body, re.MULTILINE)
     return {
-        "title": str(metadata.get("title", "Untitled memory")),
-        "body": "\n---".join(parts[1:]).strip(),
+        "title": str(metadata.get("title") or (heading.group(1) if heading else "Untitled memory")),
+        "body": body,
         "recipe": recipe,
         "sources": [str(x) for x in sources],
     }

@@ -145,12 +145,15 @@ class GBrain:
             )
         return result
 
-    async def sync(self, source: str | None = None) -> dict[str, Any]:
+    async def sync(self, source: str | None = None, *, working_tree: bool = False) -> dict[str, Any]:
         """Sync one explicit source; never embed or invoke GBrain enrichment."""
         async with self._serialized():
             return await self._execute([
                 "sync", "--source", source or self.google_source,
                 "--no-embed", "--no-extract", "--no-pull", "--json",
+                # GBrain skill bundles have a separate publication protocol;
+                # ordinary page sync must not try to import their SKILL.md files.
+                *(["--working-tree", "--exclude", "skills/**"] if working_tree else []),
             ])
 
     async def list_pages(
