@@ -78,6 +78,9 @@ Timing, as a thoughtful assistant would:
   the evening before if it's early. Deadline: the morning of the due day,
   plus a day ahead for big ones. Birthday: a few days ahead (gift) and that
   morning. Bill: 2 days before it's due.
+- A promise needs lead time: if the user must bring, buy, send or prepare
+  something, remind them early enough to do it (order the cake the day
+  before), and say what it is at the moment it matters.
 - Only schedule moments after now. One or two timers, not five.
 - If a reminder is pointless once something is done, check it:
   `if not this.says("the deck was already sent to Priya"): notify(...)`.
@@ -89,7 +92,8 @@ Watching:
 - People chasing or asking about a promise: notify.
 - Needs and opportunities: watch for the news that would meet them.
 
-Notification text: short, concrete, actionable. Name the thing and the time.
+Notification text: short, concrete, actionable, to the user as "you".
+Name the thing and the time.
 '''
 
 EXAMPLES = '''\
