@@ -1,0 +1,1234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>memento console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg transform='rotate(-7 32 32)'%3E%3Crect x='11' y='5' width='42' height='54' rx='4' fill='%23f4f1ea'/%3E%3Crect x='16' y='10' width='32' height='32' rx='2' fill='%238b7bff'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#07090e;--panel:rgba(13,17,26,.86);--card:#121826;--card2:#182032;--line:#212a3b;--line2:#2d3950;
+  --text:#e9edf5;--muted:#97a2b8;--dim:#626e86;
+  --accent:#ffb224;--accent2:#ff7a45;--brand:#8b7bff;--brand2:#6e5bff;--cyan:#6fe3ff;--teal:#2dd4bf;
+  --email:#4ea1ff;--calendar:#34d399;--chat:#c084fc;--good:#34d399;--bad:#ff6b6b;
+  --mono:"JetBrains Mono","SF Mono",SFMono-Regular,ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+html{font-size:clamp(14px,.94vw,21px)}
+html,body{height:100%}
+body{margin:0;overflow:hidden;color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;
+  background:radial-gradient(1100px 520px at 72% -12%,rgba(139,123,255,.13),transparent 60%),
+             radial-gradient(900px 480px at -5% 105%,rgba(255,178,36,.06),transparent 60%),var(--bg);
+  display:grid;grid-template-rows:auto minmax(0,1fr)}
+button,input,textarea{font:inherit;color:inherit}
+code{font-family:var(--mono);font-size:.86em;background:rgba(111,227,255,.08);color:var(--cyan);padding:.04em .32em;border-radius:5px}
+b,strong{font-weight:750}
+.muted{color:var(--muted)}
+
+/* ---------- header ---------- */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem .6rem;padding:.7rem 1.4rem;border-bottom:1px solid var(--line);background:rgba(8,11,17,.78);backdrop-filter:blur(10px)}
+.brand{display:flex;align-items:center;gap:.85rem;margin-right:.3rem}
+.logo{flex:none;width:2.05rem;height:2.5rem;background:#f4f1ea;border-radius:4px;padding:.2rem .2rem .62rem;transform:rotate(-7deg);box-shadow:0 6px 18px rgba(0,0,0,.55)}
+.logo i{display:block;width:100%;height:100%;border-radius:2px;background:linear-gradient(140deg,#8b7bff,#4ea1ff 55%,#34d399)}
+.wordmark{display:flex;align-items:center;gap:.5rem;font-size:1.75rem;font-weight:800;letter-spacing:-.035em;line-height:1}
+.subtitle{font-size:.7rem;color:var(--muted);margin-top:.28rem;white-space:nowrap;letter-spacing:.01em}
+.conn{flex:none;width:.55rem;height:.55rem;border-radius:50%;background:var(--dim);margin-top:.1rem}
+.conn[data-state=live]{background:var(--good);animation:livepulse 2s infinite}
+.conn[data-state=connecting],.conn[data-state=reconnecting]{background:var(--accent)}
+.conn[data-state=offline]{background:var(--bad)}
+@keyframes livepulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.6)}70%{box-shadow:0 0 0 8px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+.clockbox{display:flex;flex-direction:column;padding:.32rem .9rem .38rem;border:1px solid var(--line2);border-radius:14px;background:rgba(255,255,255,.03);min-width:15.5rem}
+.clock-label{display:flex;gap:.55rem;align-items:center;font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:800}
+.offset{color:var(--good);letter-spacing:.02em;text-transform:none;font-weight:800;font-size:.8rem}
+.clockbox.shifted{border-color:rgba(255,178,36,.6);background:rgba(255,178,36,.07)}
+.clockbox.shifted .offset{color:var(--accent)}
+.clock{display:flex;gap:.55rem;align-items:baseline;white-space:nowrap;font-size:1.42rem;font-weight:750;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+#clock-date{color:var(--muted);font-weight:650;font-size:.8em}
+.clockbox.jump{animation:jump 1.3s ease-out}
+@keyframes jump{0%{box-shadow:0 0 0 0 rgba(255,178,36,.85);transform:scale(1.05)}100%{box-shadow:0 0 0 24px rgba(255,178,36,0);transform:none}}
+.btns{display:flex;gap:.4rem}
+.btn{appearance:none;display:inline-flex;align-items:center;gap:.4rem;border:1px solid var(--line2);background:var(--card2);border-radius:999px;padding:.48rem .72rem;font-weight:650;font-size:.9rem;cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s,filter .15s}
+.btn:hover{background:#222c42;border-color:#3b4965}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.primary{background:linear-gradient(135deg,var(--brand2),var(--brand));border-color:transparent;color:#fff}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:.3rem .5rem;font-size:.8rem}
+.btn .ico{display:inline-flex}
+.btn.syncing .ico{animation:spin 1s linear infinite}
+.spacer{flex:1}
+.group{display:flex;flex-direction:column;gap:.22rem;padding:.28rem .45rem .38rem;border:1px dashed rgba(255,178,36,.38);border-radius:14px;background:rgba(255,178,36,.035)}
+.group-label{font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:#b08a45;font-weight:800;padding-left:.25rem}
+.group .btns{gap:.25rem}
+
+/* ---------- columns ---------- */
+main{display:grid;grid-template-columns:minmax(0,25fr) minmax(0,37fr) minmax(0,38fr);gap:1rem;padding:1rem 1.4rem 1.2rem;min-height:0}
+.col{position:relative;display:flex;flex-direction:column;min-height:0;background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.col-head{display:flex;align-items:center;gap:.6rem;padding:.78rem 1.1rem;border-bottom:1px solid var(--line);font-size:.8rem;letter-spacing:.13em;text-transform:uppercase;color:#c6cedd;font-weight:800}
+.head-note{margin-left:auto;font-size:.8rem;letter-spacing:0;text-transform:none;color:var(--muted);font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head-note b{color:var(--cyan)}
+.head-note.quiet{font-style:italic;color:var(--dim)}
+.col-body{flex:1;min-height:0;overflow-y:auto;padding:1rem;scrollbar-width:thin;scrollbar-color:#27324a transparent}
+.col-body::-webkit-scrollbar{width:10px}
+.col-body::-webkit-scrollbar-thumb{background:#27324a;border-radius:10px;border:3px solid transparent;background-clip:padding-box}
+.empty{color:var(--dim);font-size:.95rem;line-height:1.5;text-align:center;padding:3rem 1rem}
+.empty .big{display:block;font-size:2.2rem;margin-bottom:.5rem;filter:grayscale(.3)}
+
+/* ---------- reached you ---------- */
+.reach{--ring:255,178,36;display:flex;gap:.85rem;align-items:flex-start;padding:.95rem 1.05rem;margin-bottom:.8rem;border-radius:16px;cursor:pointer;
+  border:1px solid rgba(255,178,36,.55);background:linear-gradient(135deg,rgba(255,178,36,.17),rgba(255,122,69,.07) 60%,rgba(18,24,38,.92));
+  box-shadow:0 12px 36px -18px rgba(255,160,40,.55)}
+.reach .r-icon{flex:none;font-size:1.85rem;line-height:1.1}
+.reach .r-main{min-width:0}
+.reach .r-text{font-size:1.2rem;font-weight:800;line-height:1.28;overflow-wrap:anywhere}
+.reach .r-mem{margin-top:.32rem;font-size:.9rem;color:#e8d8b6;font-weight:600;overflow-wrap:anywhere}
+.reach .r-meta{margin-top:.3rem;font-size:.8rem;color:var(--muted)}
+.reach .r-meta b{color:var(--accent)}
+.reach.time{border-color:rgba(255,178,36,.38);background:linear-gradient(135deg,rgba(255,178,36,.11),rgba(18,24,38,.92) 65%);box-shadow:none}
+.reach.rw{--ring:78,161,255;border-color:rgba(78,161,255,.45);background:linear-gradient(135deg,rgba(78,161,255,.14),rgba(18,24,38,.92) 65%);box-shadow:none}
+.reach.rw .r-text{font-size:1.02rem;font-weight:700;color:#cfe0f7}
+.reach.rw .r-text span{color:#fff}
+.reach.rw .r-meta b{color:var(--email)}
+.reach.live{animation:enter .45s cubic-bezier(.2,.8,.2,1) both,ring 1.5s ease-out .25s 2}
+.reach:hover{filter:brightness(1.08)}
+
+/* ---------- feed ---------- */
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:.8rem 1rem;margin-bottom:.75rem}
+.enter{animation:enter .4s cubic-bezier(.2,.8,.2,1) both}
+@keyframes enter{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+.ev{border-left:4px solid var(--src,var(--line2))}
+.src-email{--src:var(--email)}.src-calendar{--src:var(--calendar)}.src-chat{--src:var(--chat)}
+.ev-head{display:flex;align-items:center;gap:.5rem;font-size:.74rem;font-weight:850;letter-spacing:.13em;text-transform:uppercase;color:var(--src,var(--muted))}
+.src-ico{font-size:1.1rem;letter-spacing:0}
+.ev-time{margin-left:auto;color:var(--dim);font-weight:600;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums;font-size:.85rem}
+.ev-title{font-size:1.12rem;font-weight:650;line-height:1.32;margin-top:.3rem;overflow-wrap:anywhere}
+.src-chat .ev-title::before{content:"\201C"}.src-chat .ev-title::after{content:"\201D"}
+
+.jev{margin-top:.7rem;padding:.6rem .7rem .6rem;background:rgba(3,6,12,.5);border:1px solid var(--line);border-radius:11px}
+.jev.has-fired{border-color:rgba(255,178,36,.45)}
+.jev-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:.2rem .7rem;font-size:.85rem;color:var(--muted)}
+.jev-name{font-weight:900;letter-spacing:.12em;color:#d5dcea;font-size:.76rem;text-transform:uppercase}
+.jev-head .ms{font-size:1.32rem;font-weight:850;color:var(--cyan);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.jev-head b{color:var(--text)}
+.jev-sum{margin-top:.5rem;font-size:.9rem;font-weight:650;color:var(--dim)}
+.jev-sum.yes{display:flex;align-items:center;gap:.5rem;padding:.35rem .65rem;border-radius:8px;background:rgba(255,178,36,.14);border:1px solid rgba(255,178,36,.5);color:var(--accent);font-size:1.02rem;font-weight:850}
+.jev-sum.yes b{color:#fff}
+.jev-rows{display:flex;flex-direction:column;gap:.3rem;margin-top:.5rem}
+.jr{display:grid;grid-template-columns:2.9rem minmax(0,1fr) auto;align-items:center;gap:.55rem}
+.jr .p{font-family:var(--mono);font-size:.92rem;font-weight:750;text-align:right;color:#aeb8cb;font-variant-numeric:tabular-nums}
+.track{position:relative;height:1.8rem;border-radius:7px;background:rgba(255,255,255,.04);overflow:hidden}
+.fill{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:7px;background:linear-gradient(90deg,rgba(95,118,170,.6),rgba(125,150,205,.42));transition:width 1.1s cubic-bezier(.2,.8,.2,1)}
+.thr{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:linear-gradient(to bottom,rgba(255,255,255,.75) 0 24%,transparent 24% 76%,rgba(255,255,255,.75) 76% 100%)}
+.qt{position:relative;display:block;padding:0 .6rem;line-height:1.8rem;font-size:.87rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#d3dae7}
+.qt code{background:rgba(0,0,0,.25)}
+.jr.fired .p{color:var(--accent)}
+.jr.fired .track{box-shadow:inset 0 0 0 1px rgba(255,178,36,.75)}
+.jr.fired .fill{background:linear-gradient(90deg,rgba(255,122,69,.72),rgba(255,178,36,.62));box-shadow:0 0 22px rgba(255,178,36,.45)}
+.jr.fired .qt{color:#fff;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.tagf{font-size:.66rem;font-weight:900;letter-spacing:.1em;color:#1b1200;background:var(--accent);border-radius:6px;padding:.18rem .45rem}
+.jev-more,.jev-empty{margin-top:.45rem;font-size:.78rem;color:var(--dim)}
+.jev-more{padding-left:3.45rem}
+
+.gate{display:flex;align-items:center;flex-wrap:wrap;gap:.45rem;margin-top:.6rem;font-size:.85rem;color:var(--muted)}
+.gate .gk{font-size:.64rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase;padding:.16rem .45rem;border-radius:6px;background:rgba(255,255,255,.07);color:#cdd5e3}
+.gate .p{font-family:var(--mono);color:#cdd5e3}
+.gate .dec{font-weight:850;font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;padding:.16rem .55rem;border-radius:999px}
+.gate.write .dec{color:#04150e;background:var(--good)}
+.gate.rewrite .dec{color:#04101f;background:var(--email)}
+.gate.skip .dec{color:var(--muted);background:rgba(255,255,255,.07)}
+.gate-card{padding:.5rem .9rem}.gate-card .gate{margin-top:0}
+
+.fired{--ring:255,178,36;display:flex;gap:.95rem;align-items:flex-start;padding:1rem 1.1rem;cursor:pointer;
+  border:1px solid rgba(255,178,36,.65);background:linear-gradient(135deg,rgba(255,178,36,.22),rgba(255,122,69,.10) 55%,rgba(18,24,38,.95));
+  box-shadow:0 14px 44px -16px rgba(255,160,40,.6)}
+.fired .f-icon{font-size:2.2rem;line-height:1.05;filter:drop-shadow(0 4px 12px rgba(var(--ring),.4))}
+.fired .f-main{min-width:0}
+.fired .f-kind{font-size:.74rem;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.fired .f-text{font-size:1.42rem;font-weight:800;line-height:1.25;margin-top:.18rem;overflow-wrap:anywhere}
+.fired .f-sub{margin-top:.35rem;font-size:.86rem;color:#ecdcbc}
+.fired .f-sub .dot{margin:0 .4rem;opacity:.5}
+.fired.live{animation:enter .4s cubic-bezier(.2,.8,.2,1) both,ring 1.5s ease-out .25s 2}
+@keyframes ring{0%{outline:0 solid rgba(var(--ring),.8)}100%{outline:22px solid rgba(var(--ring),0)}}
+.fired.f-surface{--ring:192,132,252;border-color:rgba(192,132,252,.6);background:linear-gradient(135deg,rgba(192,132,252,.22),rgba(139,123,255,.08) 55%,rgba(18,24,38,.95));box-shadow:0 14px 44px -16px rgba(192,132,252,.55)}
+.fired.f-surface .f-kind{color:var(--chat)}.fired.f-surface .f-sub{color:#e6d8f8}
+.fired.f-rewrite{--ring:78,161,255;border-color:rgba(78,161,255,.55);background:linear-gradient(135deg,rgba(78,161,255,.2),rgba(78,161,255,.06) 55%,rgba(18,24,38,.95));box-shadow:0 14px 44px -16px rgba(78,161,255,.5)}
+.fired.f-rewrite .f-kind{color:var(--email)}.fired.f-rewrite .f-sub{color:#d6e6fb}
+.fired.f-surface .f-text,.fired.f-rewrite .f-text{font-size:1.2rem}
+.fired.f-surface .f-icon,.fired.f-rewrite .f-icon{font-size:1.8rem}
+
+.writer{display:flex;align-items:center;gap:.85rem;border-style:dashed;border-color:rgba(139,123,255,.5);background:rgba(139,123,255,.07)}
+.writer .w-main{min-width:0;flex:1}
+.writer .w-title{font-weight:750;font-size:1.02rem;overflow-wrap:anywhere}
+.writer .w-sub{font-size:.84rem;color:var(--muted);margin-top:.1rem}
+.writer.done{border-style:solid;border-color:rgba(52,211,153,.38);background:rgba(52,211,153,.06);cursor:pointer}
+.writer.error{border-style:solid;border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.08)}
+.w-icon{font-size:1.4rem}
+.spinner{flex:none;width:1.3rem;height:1.3rem;border-radius:50%;border:3px solid rgba(139,123,255,.25);border-top-color:var(--brand);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.linked{flex:none;font-size:.68rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--good);background:rgba(52,211,153,.13);padding:.18rem .55rem;border-radius:999px}
+
+.line{display:flex;align-items:center;gap:.55rem;margin:0 .25rem .65rem;font-size:.85rem;color:var(--dim)}
+.line .li{flex:none;width:1.3rem;display:inline-flex;justify-content:center}
+.line b{color:var(--muted);font-weight:650}
+.line .lt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.line.err{color:var(--bad)}
+.line.clickable{cursor:pointer}.line.clickable:hover{color:var(--muted)}
+.line.running .li{animation:spin 1.1s linear infinite}
+.line.clock-line{color:#c9a45a}.line.clock-line b{color:var(--accent)}
+.line.send-line{color:#c9a45a;font-size:.9rem}.line.send-line b{color:var(--text)}
+.line.send-line .secs{font-family:var(--mono);color:var(--accent);font-weight:700}
+.line.send-line.waiting .li{animation:bob 1.2s ease-in-out infinite}
+.line.send-line.arrived{color:var(--good)}.line.send-line.arrived .secs{color:var(--good)}
+@keyframes bob{50%{transform:translateY(-3px)}}
+.newpill{position:absolute;left:50%;bottom:1rem;transform:translate(-50%,160%);opacity:0;pointer-events:none;transition:transform .25s,opacity .25s;border:0;border-radius:999px;padding:.5rem 1.05rem;background:var(--brand2);color:#fff;font-weight:750;box-shadow:0 10px 28px rgba(0,0,0,.55);cursor:pointer}
+.newpill.show{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+
+/* ---------- memories ---------- */
+.mem{position:relative;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:.95rem 1.05rem 1rem;margin-bottom:1rem}
+.mem-head{display:flex;align-items:flex-start;gap:.55rem}
+.mem h3{margin:0;flex:1;font-size:1.18rem;line-height:1.28;font-weight:780;overflow-wrap:anywhere}
+.pill{flex:none;font-size:.66rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase;padding:.22rem .55rem;border-radius:999px;margin-top:.18rem}
+.pill.active{color:var(--good);background:rgba(52,211,153,.12)}
+.pill.expired{color:var(--muted);background:rgba(255,255,255,.07)}
+.pill.error{color:#ffd4d4;background:rgba(255,107,107,.22)}
+.pill.fresh{color:#140f2e;background:var(--brand);animation:freshglow 1.2s ease-in-out infinite alternate}
+@keyframes freshglow{from{box-shadow:0 0 0 rgba(139,123,255,0)}to{box-shadow:0 0 14px rgba(139,123,255,.8)}}
+.mem.expired{opacity:.5}
+.mem.expired:hover{opacity:.85}
+.mem.error{border-color:rgba(255,107,107,.45)}
+.mem-meta{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .7rem;margin-top:.45rem}
+.origin{font-size:.72rem;font-weight:800;padding:.18rem .55rem;border-radius:999px;white-space:nowrap}
+.origin.you{color:var(--teal);background:rgba(45,212,191,.12);border:1px solid rgba(45,212,191,.45)}
+.origin.memento{color:#c4bbff;background:rgba(139,123,255,.13);border:1px solid rgba(139,123,255,.45)}
+.gpath{font-family:var(--mono);font-size:.76rem;color:var(--dim);overflow-wrap:anywhere}
+.gpath span{color:#9fb0cc}
+.mem-err{margin-top:.55rem;padding:.5rem .7rem;border-radius:9px;background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.35);color:#ffc9c9;font-family:var(--mono);font-size:.8rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:10rem;overflow:auto}
+.md{margin-top:.4rem;color:#cfd6e4;font-size:.96rem;line-height:1.48}
+.md p{margin:.35rem 0}
+.md ul,.md ol{margin:.35rem 0;padding-left:1.3rem}
+.md li{margin:.12rem 0}
+.md h4{margin:.5rem 0 .2rem;font-size:1rem}
+.md strong{color:#fff}
+.md a{color:var(--cyan)}
+.mem.flash{animation:memflash 2.8s ease-out}
+@keyframes memflash{0%{box-shadow:0 0 0 3px var(--brand),0 0 55px rgba(139,123,255,.6);background:#1f2248}45%{box-shadow:0 0 0 2px rgba(139,123,255,.7),0 0 30px rgba(139,123,255,.3)}100%{box-shadow:0 0 0 0 rgba(139,123,255,0);background:var(--card)}}
+
+.trigs{margin-top:.75rem;display:flex;flex-direction:column;gap:.4rem}
+.trig{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem .65rem;border-radius:10px;background:rgba(255,255,255,.028);border:1px solid var(--line)}
+.trig .ti{flex:none;font-size:1.05rem;line-height:1.4rem}
+.trig .tb{min-width:0;flex:1}
+.trig .tl{display:flex;flex-wrap:wrap;align-items:baseline;gap:.15rem .6rem;font-size:.92rem;line-height:1.42}
+.trig .cd{font-family:var(--mono);font-weight:750;color:var(--cyan);font-variant-numeric:tabular-nums;white-space:nowrap}
+.trig .when{color:var(--muted);font-size:.86rem}
+.trig .q2{color:#e6ebf4;overflow-wrap:anywhere}
+.trig .th{font-family:var(--mono);font-size:.78rem;color:var(--muted);background:rgba(255,255,255,.06);padding:.02rem .38rem;border-radius:5px;white-space:nowrap}
+.acts{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .45rem;margin-top:.28rem;font-size:.84rem;color:var(--muted)}
+.act{font-size:.62rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase;padding:.13rem .42rem;border-radius:5px;background:rgba(255,255,255,.08);color:#cdd5e3}
+.act-alert,.act-remind{background:rgba(255,178,36,.16);color:var(--accent)}
+.act-surface{background:rgba(192,132,252,.17);color:var(--chat)}
+.act-rewrite{background:rgba(78,161,255,.17);color:var(--email)}
+.act-text{color:#c2cbdb}
+.lastfired{font-size:.74rem;font-weight:850;color:var(--accent);margin-left:auto}
+.trig.soon .cd{color:var(--accent)}
+.trig.due{border-color:rgba(255,178,36,.55)}
+.trig.due .cd{color:var(--accent);animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.35}}
+.trig.fired{opacity:.55}
+.trig.fired .when,.trig.fired .act-text{text-decoration:line-through;text-decoration-thickness:2px}
+.trig.fired .cd{color:var(--good)}
+.trig.pulse{animation:trigpulse 2.4s ease-out}
+@keyframes trigpulse{0%{background:rgba(255,178,36,.34);border-color:var(--accent);box-shadow:0 0 26px rgba(255,178,36,.5)}100%{background:rgba(255,255,255,.028);border-color:var(--line);box-shadow:none}}
+
+.recipe{margin-top:.75rem}
+.recipe summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:.5rem;font-size:.72rem;font-weight:850;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);user-select:none}
+.recipe summary::-webkit-details-marker{display:none}
+.recipe summary::before{content:"\25B8";display:inline-block;transition:transform .15s}
+.recipe[open] summary::before{transform:rotate(90deg)}
+.recipe summary .py{flex:none;white-space:nowrap;color:#ffd866;letter-spacing:.04em}
+pre.code{margin:.45rem 0 0;padding:.75rem .9rem;background:#070a11;border:1px solid var(--line);border-radius:10px;overflow-x:auto;container-type:inline-size}
+pre.code code{display:block;padding:0;background:none;color:#d6deeb;font-family:var(--mono);line-height:1.55;white-space:pre;font-size:.78rem;font-size:clamp(10.5px,calc(100cqw / 48),.86rem)}
+.code .k{color:#c792ea}.code .d{color:#82aaff;font-weight:650}.code .f{color:#82aaff}.code .kw{color:#ffcb6b}
+.code .s{color:#c3e88d}.code .bt{color:#89ddff}.code .n{color:#f78c6c}.code .c{color:#6b7a99;font-style:italic}
+.code .v{color:#f07178}.code .o{color:#89ddff}
+.mem-foot{display:flex;flex-wrap:wrap;gap:.3rem 1.1rem;margin-top:.7rem;font-size:.78rem;color:var(--dim)}
+
+/* ---------- toasts & modal ---------- */
+#toasts{position:fixed;top:5.4rem;left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;align-items:center;gap:.6rem;pointer-events:none;width:min(46rem,92vw)}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:1rem;width:100%;padding:1rem 1.3rem;border-radius:18px;cursor:pointer;backdrop-filter:blur(8px);
+  background:rgba(32,23,6,.95);border:1px solid rgba(255,178,36,.8);box-shadow:0 24px 70px rgba(0,0,0,.6),0 0 60px rgba(255,178,36,.28);animation:toastin .5s cubic-bezier(.2,.9,.3,1.25) both}
+.toast.out{animation:toastout .3s ease-in both}
+.toast .t-icon{font-size:2.4rem;line-height:1}
+.toast .t-kind{font-size:.72rem;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.toast .t-text{font-size:1.38rem;font-weight:800;line-height:1.25}
+.toast .t-sub{font-size:.86rem;color:#ecdcbc;margin-top:.15rem}
+.toast.small{width:auto;padding:.6rem 1.05rem;font-size:.95rem;background:rgba(14,20,32,.96);border-color:var(--line2);box-shadow:0 18px 50px rgba(0,0,0,.55)}
+.toast.err{background:rgba(42,10,13,.96);border-color:rgba(255,107,107,.75)}
+@keyframes toastin{from{opacity:0;transform:translateY(-26px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes toastout{to{opacity:0;transform:translateY(-14px) scale(.97)}}
+.modal-bg{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;background:rgba(2,4,9,.7);backdrop-filter:blur(5px)}
+.modal-bg.open{display:flex}
+.modal{width:min(46rem,92vw);background:#0f1420;border:1px solid var(--line2);border-radius:18px;padding:1.2rem 1.35rem 1.25rem;box-shadow:0 30px 90px rgba(0,0,0,.65);animation:toastin .3s ease-out both}
+.modal-head{display:flex;align-items:center;justify-content:space-between}
+.modal h2{margin:0;font-size:1.3rem}
+.x{border:0;background:transparent;font-size:1.7rem;line-height:1;color:var(--muted);cursor:pointer}
+.presets{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center;margin:.85rem 0 .3rem;font-size:.8rem}
+.modal label{display:block;margin-top:.75rem;font-size:.72rem;font-weight:850;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.modal input,.modal textarea{display:block;width:100%;margin-top:.32rem;background:#080b12;border:1px solid var(--line2);border-radius:10px;padding:.6rem .8rem;font-size:1rem;letter-spacing:0;text-transform:none;font-weight:400;color:var(--text);outline:none;resize:vertical}
+.modal input:focus,.modal textarea:focus{border-color:var(--brand)}
+.modal-foot{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1.05rem;font-size:.82rem;color:var(--dim)}
+
+@media (max-width:1100px){
+  body{overflow:auto;height:auto;display:block}
+  main{grid-template-columns:1fr}
+  .col{height:78vh}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo"><i></i></div>
+    <div>
+      <div class="wordmark">memento<i class="conn" id="conn" data-state="connecting" title="live stream: connecting"></i></div>
+      <div class="subtitle">console · proactive memory for GBrain</div>
+    </div>
+  </div>
+  <div class="clockbox" id="clockbox" title="Demo clock (server time incl. offset)">
+    <div class="clock-label">demo clock <span class="offset" id="offset">real time</span></div>
+    <div class="clock"><span id="clock-date">&nbsp;</span><span id="clock-time">--:--:--</span></div>
+  </div>
+  <div class="btns">
+    <button class="btn" data-adv="60">+1h</button>
+    <button class="btn" data-adv="360">+6h</button>
+    <button class="btn" data-adv="1440">+1 day</button>
+    <button class="btn ghost" id="btn-reset">reset</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="group" title="Sends a REAL Gmail message to the connected account; it comes back through GBrain sync ~10-15 s later">
+    <div class="group-label">send real gmail</div>
+    <div class="btns">
+      <button class="btn sm" data-gmail="flight">✈️ flight</button>
+      <button class="btn sm" data-gmail="change">⏰ change</button>
+      <button class="btn sm" data-gmail="soc2_planned">📋 SOC 2 planned</button>
+      <button class="btn sm" data-gmail="soc2_issued">✅ SOC 2 issued</button>
+      <button class="btn sm" data-gmail="nopa">🍽️ Nopa</button>
+    </div>
+  </div>
+  <button class="btn ghost" id="btn-sim" title="Simulate email: inject a fake email event without Gmail">✉️ simulate</button>
+  <button class="btn primary" id="btn-sync"><span class="ico" id="sync-ico"></span>sync now</button>
+</header>
+
+<main>
+  <section class="col">
+    <div class="col-head"><span>🔔 Reached you</span><span class="head-note quiet">no one asked</span></div>
+    <div class="col-body" id="reached"></div>
+  </section>
+  <section class="col">
+    <div class="col-head"><span>⚡ Live feed</span><span class="head-note" id="jev-stat">one Jev call checks every trigger</span></div>
+    <div class="col-body" id="feed"></div>
+    <button class="newpill" id="newpill" type="button">↓ new events</button>
+  </section>
+  <section class="col">
+    <div class="col-head"><span>🧠 Memories</span><span class="head-note" id="mem-stat"></span></div>
+    <div class="col-body" id="mems"></div>
+  </section>
+</main>
+
+<div id="toasts"></div>
+
+<div class="modal-bg" id="modal">
+  <form class="modal" id="sim-form" autocomplete="off">
+    <div class="modal-head"><h2>✉️ Simulate an incoming email</h2><button type="button" class="x" id="sim-close" aria-label="Close">×</button></div>
+    <div class="presets"><span class="muted">presets:</span>
+      <button type="button" class="btn sm" data-preset="0">✈️ flight delayed</button>
+      <button type="button" class="btn sm" data-preset="1">🍝 dinner invite</button>
+      <button type="button" class="btn sm" data-preset="2">📰 newsletter</button>
+    </div>
+    <label>From<input name="from" placeholder="United Airlines &lt;notifications@united.com&gt;"></label>
+    <label>Subject<input name="subject" required></label>
+    <label>Body<textarea name="body" rows="6"></textarea></label>
+    <div class="modal-foot"><span>Injects an email event without Gmail · ⌘/Ctrl+Enter to send · Esc to close</span><button class="btn primary" type="submit">Send email</button></div>
+  </form>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ================= helpers ================= */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const clamp01 = (x) => Math.max(0, Math.min(1, Number(x) || 0));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const ICON = { email: '✉️', calendar: '📅', chat: '💬' };
+const FEED_CAP = 150;
+const REACHED_CAP = 100;
+const JEV_ROWS = 5;
+const SYNC_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><path d="M20.5 3.5V9H15"/></svg>';
+const EVENT_TYPES = ['event_in', 'jev', 'gate', 'writer', 'memory', 'fired', 'chat', 'clock', 'sync'];
+const PRESETS = [
+  { from: 'United Airlines <notifications@united.com>',
+    subject: 'Schedule change: UA 123 SFO → JFK on Mon, Sep 28',
+    body: 'Your flight UA 123 from San Francisco (SFO) to New York (JFK) on Monday, September 28 has been delayed.\n\nNew departure: 10:40am (was 8:05am). Seat 14C is unchanged.\nConfirmation: K7Q2LM' },
+  { from: 'Ana Lopez <ana.lopez@gmail.com>',
+    subject: 'Dinner Friday?',
+    body: 'Hey! Want to get dinner Friday Oct 2 at 7:30 at Nopa? I booked a table for four.' },
+  { from: 'The Download <newsletters@technologyreview.com>',
+    subject: 'The Download: AI agents are everywhere',
+    body: 'This week: agents that book your travel, a new inference chip, and more. Unsubscribe anytime.' },
+];
+
+const S = {
+  clock: { base: Date.now(), perf: performance.now(), offset: 0 },
+  lastOffset: null,        // offset seen in the last clock event (for feed lines)
+  memories: new Map(),     // slug -> MemoryView
+  eventCards: new Map(),   // event_in id -> card element
+  writers: [],             // writer cards still spinning
+  lastFired: new Map(),    // trigger_id -> {p, at}
+  rewriteCards: new Map(), // memory slug -> "rewrote itself" card waiting for the writer
+  jevMs: [],
+  lastJevEvent: null,      // event_id of the latest Jev call (fired events follow it)
+  lastJevSource: null,
+  rewriteFor: null,        // event_id whose Jev call fired a rewrite
+  pendingSends: [],        // real Gmail sends waiting to come back through sync
+  sticky: true,
+  replaying: false,
+  es: null,
+  needResync: false,
+  syncTimer: null,
+};
+
+function parseTime(v) {
+  if (v == null || v === '') return NaN;
+  if (typeof v === 'number') return v < 1e12 ? v * 1000 : v;
+  const s = String(v).trim().replace(/^(\d{4}-\d{2}-\d{2}) /, '$1T').replace(/(\.\d{3})\d+/, '$1');
+  return Date.parse(s);
+}
+const demoNow = () => S.clock.base + (performance.now() - S.clock.perf);
+const fmt = (ms, opts) => (Number.isFinite(ms) ? new Date(ms).toLocaleString('en-US', opts) : '');
+const fmtTime = (v) => fmt(parseTime(v), { hour: 'numeric', minute: '2-digit' });
+const fmtTimeS = (v) => fmt(parseTime(v), { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+const fmtDay = (v) => fmt(parseTime(v), { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const fmtMs = (ms) => (ms == null || !Number.isFinite(+ms) ? '' : +ms < 1000 ? `${Math.round(+ms)} ms` : `${(+ms / 1000).toFixed(1)} s`);
+const fmtP = (p) => clamp01(p).toFixed(2);
+const shortSlug = (s) => String(s ?? '').split('/').pop();
+const memTitle = (slug) => (S.memories.get(slug) || {}).title || shortSlug(slug);
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+function fmtDur(ms) {
+  const t = Math.floor(Math.abs(ms) / 1000);
+  const d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  if (d) return `${d}d ${h}h ${p(m)}m`;
+  if (h) return `${h}h ${p(m)}m ${p(s)}s`;
+  if (m) return `${m}m ${p(s)}s`;
+  return `${s}s`;
+}
+function fmtOffset(min) {
+  min = Number(min) || 0;
+  if (!min) return '';
+  const a = Math.abs(min), d = Math.floor(a / 1440), h = Math.floor((a % 1440) / 60), m = a % 60;
+  return (min < 0 ? '−' : '+') + [d && `${d}d`, h && `${h}h`, m && `${m}m`].filter(Boolean).join(' ');
+}
+function node(tag, cls, html) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (html != null) n.innerHTML = html;
+  return n;
+}
+function restartAnim(el, cls) {
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
+
+/* ================= markdown + python ================= */
+const qfmt = (q) => esc(q).replace(/`([^`]+)`/g, '<code>$1</code>');
+function inlineMd(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function md(src) {
+  const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n');
+  let html = '', para = [], list = null, m;
+  const flush = () => { if (para.length) { html += `<p>${inlineMd(para.join(' '))}</p>`; para = []; } };
+  const close = () => { if (list) { html += `</${list}>`; list = null; } };
+  const open = (t) => { if (list !== t) { close(); html += `<${t}>`; list = t; } };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line.trim()) { flush(); close(); continue; }
+    if ((m = line.match(/^\s{0,3}#{1,6}\s+(.*)$/))) { flush(); close(); html += `<h4>${inlineMd(m[1])}</h4>`; continue; }
+    if ((m = line.match(/^\s*[-*+•]\s+(.*)$/))) { flush(); open('ul'); html += `<li>${inlineMd(m[1])}</li>`; continue; }
+    if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) { flush(); open('ol'); html += `<li>${inlineMd(m[1])}</li>`; continue; }
+    if (list && /^\s{2,}\S/.test(raw)) { html = html.replace(/<\/li>$/, ` ${inlineMd(line.trim())}</li>`); continue; }
+    close(); para.push(line.trim());
+  }
+  flush(); close();
+  return html;
+}
+function stripTitle(body, title) {
+  const b = String(body ?? '');
+  const m = b.match(/^\s*#{1,2}\s+(.+)(\n|$)/);
+  if (m && title && m[1].trim().toLowerCase() === String(title).trim().toLowerCase()) return b.slice(m[0].length);
+  return b;
+}
+
+const PY_KW = new Set('from import as def return if elif else for while in not and or is lambda with try except finally raise class pass break continue yield global nonlocal assert del async await'.split(' '));
+const PY_CONST = new Set(['None', 'True', 'False']);
+const DSL = new Set('at hours minutes days weeks remind on expires email calendar chat noul choice score alert surface rewrite this'.split(' '));
+const PY_RE = /(#[^\n]*)|((?:[rRbBuUfF]{1,2})?(?:"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?))|(\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|([A-Za-z_]\w*)|(\s+)|([^\s\w"'#]+)|([\s\S])/g;
+function highlightPy(src) {
+  src = String(src ?? '').replace(/\t/g, '    ').replace(/\s+$/, '');
+  let out = '', depth = 0, m;
+  PY_RE.lastIndex = 0;
+  while ((m = PY_RE.exec(src)) !== null) {
+    const tok = m[0];
+    if (!tok) { PY_RE.lastIndex++; continue; }
+    if (m[1]) out += `<span class="c">${esc(tok)}</span>`;
+    else if (m[2]) out += `<span class="s">${esc(tok).replace(/`([^`\n]+)`/g, '<span class="bt">`$1`</span>')}</span>`;
+    else if (m[3]) out += `<span class="n">${tok}</span>`;
+    else if (m[4]) {
+      const after = src.slice(PY_RE.lastIndex, PY_RE.lastIndex + 8).match(/^[ \t]*(\S)(\S?)/);
+      const nx = after ? after[1] : '', nx2 = after ? after[2] : '';
+      let cls = '';
+      if (PY_KW.has(tok)) cls = 'k';
+      else if (PY_CONST.has(tok)) cls = 'n';
+      else if (nx === '=' && nx2 !== '=') cls = depth > 0 ? 'kw' : 'v';
+      else if (DSL.has(tok)) cls = 'd';
+      else if (nx === '(') cls = 'f';
+      out += cls ? `<span class="${cls}">${tok}</span>` : tok;
+    } else if (m[6]) {
+      for (const ch of tok) {
+        if ('([{'.includes(ch)) depth++;
+        else if (')]}'.includes(ch)) depth = Math.max(0, depth - 1);
+      }
+      out += /^[=+\-*/<>!%&|^~@]+$/.test(tok) ? `<span class="o">${esc(tok)}</span>` : esc(tok);
+    } else out += esc(tok);
+  }
+  return out;
+}
+
+/* ================= clock ================= */
+function setClock(nowIso, offset, live) {
+  const ms = parseTime(nowIso);
+  if (!Number.isFinite(ms)) return;
+  const jumped = Math.abs(ms - demoNow()) > 90e3;
+  S.clock = { base: ms, perf: performance.now(), offset: Number(offset) || 0 };
+  tick();
+  if (live && jumped) restartAnim($('#clockbox'), 'jump');
+}
+function renderClock() {
+  const now = demoNow();
+  $('#clock-date').textContent = fmt(now, { weekday: 'short', month: 'short', day: 'numeric' });
+  $('#clock-time').textContent = fmt(now, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const off = S.clock.offset || 0;
+  $('#offset').textContent = off ? `⏩ ${fmtOffset(off)}` : 'real time';
+  $('#clockbox').classList.toggle('shifted', !!off);
+}
+function tick() {
+  renderClock();
+  if (S.pendingSends.length) updateSendLines();
+  const now = demoNow();
+  for (const row of $$('.trig[data-fire-at]')) {
+    const at = Number(row.dataset.fireAt), cd = row.querySelector('.cd');
+    const fired = row.classList.contains('fired');
+    const d = at - now;
+    let txt, state = '';
+    if (fired) txt = '✓ fired';
+    else if (!Number.isFinite(at)) txt = '—';
+    else if (d <= 0) { txt = 'due now'; state = 'due'; }
+    else { txt = `in ${fmtDur(d)}`; if (d < 3600e3) state = 'soon'; }
+    if (cd && cd.textContent !== txt) cd.textContent = txt;
+    row.classList.toggle('soon', state === 'soon');
+    row.classList.toggle('due', state === 'due');
+  }
+  for (const e of $$('[data-expires]')) {
+    const d = Number(e.dataset.expires) - now;
+    const txt = d > 0 ? `⌛ expires in ${fmtDur(d)}` : `⌛ expired ${fmtDur(d)} ago`;
+    if (e.textContent !== txt) e.textContent = txt;
+  }
+}
+
+/* ================= memories ================= */
+function actTag(a) {
+  const s = String(a ?? '');
+  const i = s.indexOf(':');
+  const verb = (i >= 0 ? s.slice(0, i) : s).trim();
+  const text = i >= 0 ? s.slice(i + 1).trim() : '';
+  const v = verb.toLowerCase().replace(/[^a-z]/g, '');
+  return `<span class="act act-${v}">${esc(verb)}</span>${text ? `<span class="act-text">“${esc(text)}”</span>` : ''}`;
+}
+function lastFiredText(lf) {
+  return `⚡ fired${lf.p != null ? ` ${fmtP(lf.p)}` : ''}${lf.at ? ` · ${fmtTime(lf.at)}` : ''}`;
+}
+function trigRow(t) {
+  const acts = (t.actions || []).map(actTag).join('');
+  const id = esc(t.id ?? '');
+  if (t.kind === 'time') {
+    const at = parseTime(t.fire_at);
+    return `<div class="trig time${t.fired ? ' fired' : ''}" data-trigger-id="${id}" data-fire-at="${at}">
+      <span class="ti">⏰</span>
+      <div class="tb"><div class="tl"><span class="cd"></span><span class="when">${esc(fmtDay(t.fire_at))}</span></div>
+      <div class="acts">${acts}</div></div></div>`;
+  }
+  const lf = S.lastFired.get(t.id);
+  return `<div class="trig event" data-trigger-id="${id}">
+    <span class="ti" title="${esc(t.source || '')}">${ICON[t.source] || '⚡'}</span>
+    <div class="tb"><div class="tl"><span class="q2">${qfmt(t.question || '')}</span>${t.threshold != null ? `<span class="th">p ≥ ${fmtP(t.threshold)}</span>` : ''}</div>
+    <div class="acts">${acts}${lf ? `<span class="lastfired">${esc(lastFiredText(lf))}</span>` : ''}</div></div></div>`;
+}
+const memStatus = (m) => (m.status === 'error' || m.error ? 'error' : m.status === 'expired' ? 'expired' : 'active');
+function originBadge(m) {
+  if (m.origin === 'you') return '<span class="origin you">✍️ written by you/your agent</span>';
+  if (m.origin === 'memento') return '<span class="origin memento">✨ written by memento from email</span>';
+  return '';
+}
+function buildMem(m) {
+  const status = memStatus(m);
+  const card = node('article', `mem ${status}`);
+  card.dataset.slug = m.slug;
+  const trigs = (m.triggers || []).map(trigRow).join('');
+  const exp = parseTime(m.expires);
+  const src = Array.isArray(m.sources) ? m.sources : [];
+  const path = m.path || m.slug;
+  card.innerHTML = `
+    <div class="mem-head"><h3>${esc(m.title || shortSlug(m.slug))}</h3><span class="pill ${status}">${status === 'active' ? '● active' : status}</span></div>
+    <div class="mem-meta">${originBadge(m)}${path ? `<span class="gpath">gbrain: <span>${esc(path)}</span></span>` : ''}</div>
+    <div class="md">${md(stripTitle(m.body, m.title))}</div>
+    ${m.error ? `<div class="mem-err">⚠️ recipe error: ${esc(m.error)}</div>` : ''}
+    ${trigs ? `<div class="trigs">${trigs}</div>` : ''}
+    ${m.recipe ? `<details class="recipe" open><summary><span class="py">🐍 recipe.py</span></summary><pre class="code"><code>${highlightPy(m.recipe)}</code></pre></details>` : ''}
+    <div class="mem-foot">
+      ${Number.isFinite(exp) ? `<span data-expires="${exp}"></span>` : '<span>⌛ no expiry</span>'}
+      ${src.length ? `<span title="${esc(src.join('\n'))}">📎 ${esc(shortSlug(src[0]))}${src.length > 1 ? ` +${src.length - 1}` : ''}</span>` : ''}
+      ${m.updated_at ? `<span>updated ${esc(fmtTime(m.updated_at))}</span>` : ''}
+    </div>`;
+  return card;
+}
+function memCard(slug) {
+  return slug ? $(`#mems .mem[data-slug="${CSS.escape(slug)}"]`) : null;
+}
+function upsertMemory(m, change, live) {
+  if (!m || !m.slug) return;
+  S.memories.set(m.slug, m);
+  const list = $('#mems');
+  const old = memCard(m.slug);
+  const card = buildMem(m);
+  if (old) {
+    const d = old.querySelector('details.recipe');
+    if (d && !d.open) card.querySelector('details.recipe')?.removeAttribute('open');
+    old.remove();
+  }
+  $('#mems-empty')?.remove();
+  list.prepend(card);
+  if (live) {
+    const badge = node('span', 'pill fresh', change === 'added' ? 'new' : 'updated');
+    card.querySelector('.mem-head h3').after(badge);
+    setTimeout(() => badge.remove(), 30000);
+    restartAnim(card, 'flash');
+    list.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  updateMemStats();
+  tick();
+}
+function renderAllMemories() {
+  const list = $('#mems');
+  list.innerHTML = '';
+  for (const m of S.memories.values()) list.appendChild(buildMem(m));
+  updateMemStats();
+  ensureEmpty();
+}
+function updateMemStats() {
+  const all = [...S.memories.values()];
+  const active = all.filter((m) => memStatus(m) === 'active');
+  const errors = all.filter((m) => memStatus(m) === 'error').length;
+  let armed = 0;
+  for (const m of active) for (const t of m.triggers || []) if (t.kind !== 'time' || !t.fired) armed++;
+  $('#mem-stat').innerHTML = all.length
+    ? `<b>${active.length}</b> active · <b>${armed}</b> triggers armed${errors ? ` · <span style="color:var(--bad)">${errors} error</span>` : ''}`
+    : '';
+}
+function findTrigger(id) {
+  for (const m of S.memories.values()) for (const t of m.triggers || []) if (t.id === id) return t;
+  return null;
+}
+function trigRowEl(id) {
+  return id ? $(`#mems .trig[data-trigger-id="${CSS.escape(id)}"]`) : null;
+}
+function focusMemory(slug) {
+  const card = memCard(slug);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  restartAnim(card, 'flash');
+}
+
+/* ================= reached you ================= */
+function addReached(ev, live, isTime, trig) {
+  const list = $('#reached');
+  $('#reached-empty')?.remove();
+  const memName = ev.title || memTitle(ev.memory);
+  const when = ev.at ? fmtDay(ev.at) : '';
+  const src = trig ? trig.source : isTime ? null : S.lastJevSource;
+  const why = [ev.p != null ? `p <b>${fmtP(ev.p)}</b>` : '', src ? `triggered by ${esc(src)}` : '', esc(when)].filter(Boolean).join(' · ');
+  let card;
+  if (ev.action === 'rewrite') {
+    card = node('div', `reach rw${live ? ' live' : ''}`, `
+      <div class="r-icon">✏️</div>
+      <div class="r-main"><div class="r-text">memory rewrote itself: <span>${esc(memName)}</span></div><div class="r-meta">${why}</div></div>`);
+    if (ev.memory) S.rewriteCards.set(ev.memory, card);
+  } else {
+    card = node('div', `reach ${isTime ? 'time' : 'alert'}${live ? ' live' : ''}`, `
+      <div class="r-icon">🔔</div>
+      <div class="r-main"><div class="r-text">${esc(ev.text || memName)}</div><div class="r-mem">${esc(memName)}</div>
+      <div class="r-meta">${isTime ? `⏰ reminder · ${esc(when)}` : why}</div></div>`);
+  }
+  card.onclick = () => focusMemory(ev.memory);
+  list.prepend(card);
+  while (list.childElementCount > REACHED_CAP) list.lastElementChild.remove();
+  if (live && list.scrollTop < 400) list.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function rewriteFinished(ev) {
+  const card = ev.memory && S.rewriteCards.get(ev.memory);
+  if (!card) return;
+  S.rewriteCards.delete(ev.memory);
+  if (!card.isConnected) return;
+  const meta = card.querySelector('.r-meta');
+  if (ev.status === 'error') { meta.innerHTML += ' · rewrite failed'; return; }
+  if (ev.title) card.querySelector('.r-text span').textContent = ev.title;
+  if (ev.ms != null) meta.innerHTML += ` · rewritten in ${esc(fmtMs(ev.ms))}`;
+}
+
+/* ================= feed ================= */
+function appendFeed(el, live) {
+  const f = $('#feed');
+  $('#feed-empty')?.remove();
+  if (live) el.classList.add('enter');
+  f.appendChild(el);
+  while (f.childElementCount > FEED_CAP) {
+    const first = f.firstElementChild;
+    if (first.dataset.eventId) S.eventCards.delete(first.dataset.eventId);
+    first.remove();
+  }
+  grew(live);
+  return el;
+}
+function grew(live) {
+  if (S.replaying) return;
+  const f = $('#feed');
+  if (S.sticky) f.scrollTop = f.scrollHeight;
+  else if (live) $('#newpill').classList.add('show');
+}
+function feedLine(icon, html, live, cls = '') {
+  return appendFeed(node('div', `line ${cls}`, `<span class="li">${icon}</span><span class="lt">${html}</span>`), live);
+}
+function attachToEvent(eventId, el, live) {
+  const parent = eventId && S.eventCards.get(eventId);
+  if (parent && parent.isConnected) {
+    parent.querySelector('.ev-sub').appendChild(el);
+    grew(live);
+    return true;
+  }
+  return false;
+}
+
+function onEventIn(ev, live) {
+  const src = ev.source || 'event';
+  const card = node('div', `card ev src-${esc(src)}`, `
+    <div class="ev-head"><span class="src-ico">${ICON[src] || '📥'}</span><span>${esc(src)}</span><span class="ev-time">${esc(fmtTimeS(ev.at))}</span></div>
+    <div class="ev-title">${esc(ev.title || '(untitled)')}</div>
+    <div class="ev-sub"></div>`);
+  if (ev.id != null) {
+    card.dataset.eventId = ev.id;
+    S.eventCards.set(String(ev.id), card);
+  }
+  appendFeed(card, live);
+  if (live) markSendArrived(ev.title);
+}
+
+/* A real Gmail send shows a waiting line until the email comes back through sync. */
+const normSubj = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+function sendLineHtml(s) {
+  const secs = (performance.now() - s.t0) / 1000;
+  if (s.arrived) return `real email arrived via Gmail → GBrain sync in <span class="secs">${secs.toFixed(1)} s</span> · <b>${esc(s.subject)}</b>`;
+  return `sent real Gmail <b>${esc(s.subject)}</b> · waiting for Gmail → GBrain sync <span class="secs">${Math.floor(secs)}s</span>`;
+}
+function updateSendLines() {
+  S.pendingSends = S.pendingSends.filter((s) => s.el.isConnected && performance.now() - s.t0 < 300e3);
+  for (const s of S.pendingSends) s.el.querySelector('.lt').innerHTML = sendLineHtml(s);
+}
+function markSendArrived(title) {
+  const t = normSubj(title);
+  if (!t) return;
+  const i = S.pendingSends.findIndex((s) => { const q = normSubj(s.subject); return q && (t === q || t.includes(q) || q.includes(t)); });
+  if (i < 0) return;
+  const s = S.pendingSends.splice(i, 1)[0];
+  s.arrived = true;
+  s.el.classList.remove('waiting');
+  s.el.classList.add('arrived');
+  s.el.querySelector('.li').textContent = '✅';
+  s.el.querySelector('.lt').innerHTML = sendLineHtml(s);
+}
+async function gmailSend(demo, btn) {
+  btn.disabled = true;
+  try {
+    const r = await api('/api/gmail/send', { demo });
+    const subject = r.subject || demo;
+    toastInfo(`📨 sent: ${subject}`);
+    const s = { subject, t0: performance.now(), arrived: false, el: null };
+    s.el = feedLine('📨', '', true, 'send-line waiting');
+    S.pendingSends.push(s);
+    updateSendLines();
+  } catch (e) {
+    toastError(`send real email: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function jevBlock(ev, live) {
+  const all = Array.isArray(ev.results) ? ev.results.slice() : [];
+  all.sort((a, b) => (Number(b.p) || 0) - (Number(a.p) || 0));
+  const top = all.slice(0, JEV_ROWS);
+  const nFired = all.filter((r) => r.fired).length;
+  const nq = ev.n_questions ?? all.length;
+  const rows = top.map((r) => {
+    const p = clamp01(r.p), th = r.threshold != null ? clamp01(r.threshold) : null;
+    const w = (p * 100).toFixed(1);
+    const q = r.question ?? r.trigger_id ?? '';
+    const tip = `${r.title || memTitle(r.memory)}\n${q}\np = ${p.toFixed(3)}${th != null ? `  (threshold ${th.toFixed(2)})` : ''}`;
+    return `<div class="jr${r.fired ? ' fired' : ''}" title="${esc(tip)}">
+      <span class="p">${p.toFixed(2)}</span>
+      <span class="track"><i class="fill" data-w="${w}" style="width:${live ? 0 : w}%"></i>${th != null ? `<i class="thr" style="left:${(th * 100).toFixed(1)}%"></i>` : ''}<span class="qt">${qfmt(q)}</span></span>
+      ${r.fired ? '<span class="tagf">FIRED</span>' : '<span></span>'}
+    </div>`;
+  }).join('');
+  const more = nq - top.length;
+  const summary = nFired
+    ? `<div class="jev-sum yes">🔥 <span><b>${nFired} of ${esc(nq)}</b> fired</span></div>`
+    : `<div class="jev-sum no">nothing fired · 0 of ${esc(nq)}</div>`;
+  const d = node('div', `jev${nFired ? ' has-fired' : ''}`, `
+    <div class="jev-head">
+      <span class="jev-name">⚡ Jev</span>
+      <span class="ms">${esc(fmtMs(ev.ms))}</span>
+      <span><b>${esc(nq)}</b> ${nq === 1 ? 'question' : 'questions'} · <b>1</b> call</span>
+      ${ev.input_tokens != null ? `<span>${esc(Number(ev.input_tokens).toLocaleString('en-US'))} tokens</span>` : ''}
+    </div>
+    ${summary}
+    ${rows ? `<div class="jev-rows">${rows}</div>` : '<div class="jev-empty">no active triggers for this source</div>'}
+    ${more > 0 && top.length ? `<div class="jev-more">+ ${plural(more, 'more question')} answered in the same call</div>` : ''}`);
+  if (live) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      for (const i of d.querySelectorAll('.fill')) i.style.width = `${i.dataset.w}%`;
+    }));
+  }
+  return d;
+}
+function onJev(ev, live) {
+  S.lastJevEvent = ev.event_id ?? null;
+  S.lastJevSource = ev.source || null;
+  const block = jevBlock(ev, live);
+  if (!attachToEvent(ev.event_id, block, live)) {
+    const src = ev.source || '';
+    const card = node('div', `card ev src-${esc(src)}`, `<div class="ev-head"><span class="src-ico">${ICON[src] || '⚡'}</span><span>${esc(src || 'event')}</span></div>`);
+    card.appendChild(block);
+    appendFeed(card, live);
+  }
+  const ms = Number(ev.ms);
+  if (Number.isFinite(ms)) {
+    S.jevMs.push(ms);
+    if (S.jevMs.length > 50) S.jevMs.shift();
+    const avg = S.jevMs.reduce((a, b) => a + b, 0) / S.jevMs.length;
+    $('#jev-stat').innerHTML = `last Jev call <b>${esc(fmtMs(ms))}</b> · avg ${esc(fmtMs(avg))} · ${esc(plural(ev.n_questions ?? 0, 'question'))}`;
+  }
+}
+
+function onGate(ev, live) {
+  const write = ev.decision === 'write';
+  // The engine skips the write gate when a fired trigger already rewrites a memory.
+  const rewriting = !write && ev.event_id != null && S.rewriteFor === ev.event_id;
+  const kind = String(ev.kind || 'worth remembering').replace(/\?*$/, '?');
+  const g = node('div', `gate ${write ? 'write' : rewriting ? 'rewrite' : 'skip'}`, `
+    <span class="gk">gate</span><span>${esc(kind)}</span>
+    ${ev.p != null ? `<span class="p">${fmtP(ev.p)}</span>` : ''}
+    <span>→</span><span class="dec">${write ? 'write new memory' : rewriting ? 'rewrite existing' : 'skip'}</span>`);
+  if (!attachToEvent(ev.event_id, g, live)) {
+    const card = node('div', 'card gate-card');
+    card.appendChild(g);
+    appendFeed(card, live);
+  }
+}
+
+function writerBody(ev) {
+  const title = ev.title || (ev.memory ? memTitle(ev.memory) : '');
+  if (ev.status === 'start') {
+    return `<span class="spinner"></span><div class="w-main"><div class="w-title">writing memory…</div><div class="w-sub">${esc(title || 'new memory from this event')}</div></div>`;
+  }
+  if (ev.status === 'error') {
+    return `<span class="w-icon">⚠️</span><div class="w-main"><div class="w-title">writer failed</div><div class="w-sub">${esc(ev.error || 'unknown error')}${ev.attempts ? ` · ${esc(plural(ev.attempts, 'attempt'))}` : ''}</div></div>`;
+  }
+  const stats = [ev.ms != null ? fmtMs(ev.ms) : '', ev.attempts ? plural(ev.attempts, 'attempt') : ''].filter(Boolean);
+  if (!ev.memory && !ev.title) {
+    return `<span class="w-icon">🤷</span><div class="w-main"><div class="w-title">nothing worth remembering</div><div class="w-sub">${esc(['writer skipped', ...stats].join(' · '))}</div></div>`;
+  }
+  return `<span class="w-icon">📝</span><div class="w-main"><div class="w-title">${esc(title || 'memory written')}</div><div class="w-sub">${esc(['memory written', ...stats].join(' · '))}</div></div>`;
+}
+function linkWriter(card, verb) {
+  if (card.dataset.linked) return;
+  card.dataset.linked = '1';
+  card.appendChild(node('span', 'linked', `memory ${verb}`));
+}
+function onWriter(ev, live) {
+  if (ev.status === 'start') {
+    const card = node('div', 'card writer running', writerBody(ev));
+    card.dataset.memory = ev.memory || '';
+    S.writers.push(card);
+    appendFeed(card, live);
+    return;
+  }
+  S.writers = S.writers.filter((c) => c.isConnected);
+  let i = ev.memory ? S.writers.findIndex((c) => c.dataset.memory === ev.memory) : -1;
+  if (i < 0) i = S.writers.findIndex((c) => !c.dataset.memory);
+  if (i < 0 && S.writers.length) i = 0;
+  let card = i >= 0 ? S.writers.splice(i, 1)[0] : null;
+  if (!card) card = appendFeed(node('div', 'card writer'), live);
+  card.className = `card writer ${ev.status === 'error' ? 'error' : 'done'}`;
+  card.innerHTML = writerBody(ev);
+  delete card.dataset.linked;
+  if (ev.memory) card.dataset.memory = ev.memory;
+  card.onclick = () => focusMemory(card.dataset.memory);
+  // The memory event may have landed before the writer finished: fold its line into this card.
+  if (ev.status !== 'error' && ev.memory) {
+    const line = Array.from($('#feed').children).slice(-8).find((n) => n.dataset.memLine === ev.memory);
+    if (line) { linkWriter(card, line.dataset.verb || 'updated'); line.remove(); }
+  }
+  rewriteFinished(ev);
+  grew(live);
+}
+
+function onMemory(ev, live) {
+  const isObj = ev.memory && typeof ev.memory === 'object';
+  const m = isObj ? ev.memory : S.memories.get(ev.memory) || { slug: ev.memory };
+  if (!m || !m.slug) return;
+  if (live && isObj) upsertMemory(m, ev.change, true);
+  const verb = ev.change === 'added' ? 'added' : 'updated';
+  const recent = Array.from($('#feed').children).slice(-8).reverse();
+  const w = recent.find((n) => n.classList.contains('writer') && n.classList.contains('done') && !n.dataset.linked && n.dataset.memory === m.slug);
+  if (w) { linkWriter(w, verb); return; }
+  const l = feedLine('🧠', `memory ${verb} · <b>${esc(m.title || shortSlug(m.slug))}</b>`, live, 'clickable');
+  l.dataset.memLine = m.slug;
+  l.dataset.verb = verb;
+  l.onclick = () => focusMemory(m.slug);
+}
+
+function onFired(ev, live) {
+  const action = ev.action || 'alert';
+  const trig = findTrigger(ev.trigger_id);
+  const isTime = trig ? trig.kind === 'time' : action === 'alert' && ev.p == null;
+  const lf = { p: ev.p, at: ev.at };
+  if (ev.trigger_id) S.lastFired.set(ev.trigger_id, lf);
+  if (action === 'rewrite') S.rewriteFor = S.lastJevEvent;
+  const icon = action === 'alert' ? (isTime ? '⏰' : '🔔') : action === 'surface' ? '📌' : action === 'rewrite' ? '✏️' : '⚡';
+  const label = action === 'alert' ? (isTime ? 'Reminder' : 'Alert') : action === 'surface' ? 'Surfaced into chat' : action === 'rewrite' ? 'Rewriting memory' : action;
+  const memName = ev.title || memTitle(ev.memory);
+  const main = action === 'alert' ? (ev.text || memName) : memName;
+  const sub = [];
+  if (action === 'alert' && ev.text && memName) sub.push(esc(memName));
+  if (action !== 'alert' && ev.text) sub.push(esc(ev.text));
+  if (ev.p != null) sub.push(`p <b>${fmtP(ev.p)}</b>`);
+  if (isTime) sub.push('time trigger');
+  if (ev.at) sub.push(esc(fmtTimeS(ev.at)));
+  const card = node('div', `card fired f-${esc(action)}${live ? ' live' : ''}`, `
+    <div class="f-icon">${icon}</div>
+    <div class="f-main"><div class="f-kind">${esc(label)}</div><div class="f-text">${esc(main)}</div><div class="f-sub">${sub.join('<span class="dot">·</span>')}</div></div>`);
+  card.onclick = () => focusMemory(ev.memory);
+  appendFeed(card, live);
+  if (action === 'alert' || action === 'rewrite') addReached(ev, live, isTime, trig);
+
+  const row = trigRowEl(ev.trigger_id);
+  if (row) {
+    if (isTime) row.classList.add('fired');
+    else {
+      let b = row.querySelector('.lastfired');
+      if (!b) { b = node('span', 'lastfired'); row.querySelector('.acts')?.appendChild(b); }
+      b.textContent = lastFiredText(lf);
+    }
+    if (live) restartAnim(row, 'pulse');
+  }
+  if (isTime && trig) trig.fired = true;
+  if (live && action === 'alert') {
+    toast(`<div class="t-icon">${icon}</div><div><div class="t-kind">${esc(label)}</div><div class="t-text">${esc(main)}</div>
+      <div class="t-sub">${[ev.text ? esc(memName) : '', ev.p != null ? `p ${fmtP(ev.p)}` : ''].filter(Boolean).join(' · ')}</div></div>`, '', 8000);
+  }
+  if (live) tick();
+}
+
+function onClock(ev, live) {
+  if (live) setClock(ev.now, ev.offset_minutes, true);
+  const off = Number(ev.offset_minutes) || 0;
+  const changed = S.lastOffset === null ? off !== 0 : off !== S.lastOffset;
+  S.lastOffset = off;
+  if (changed) {
+    feedLine('⏩', `demo clock → <b>${esc(fmtDay(ev.now))}</b> ${off ? `(${esc(fmtOffset(off))})` : '(reset to real time)'}`, live, 'clock-line');
+  }
+}
+
+function onSync(ev, live) {
+  const f = $('#feed');
+  const last = f.lastElementChild;
+  let text;
+  if (ev.status === 'start') text = 'syncing Gmail + Calendar…';
+  else if (ev.status === 'error') text = `sync failed: ${esc(ev.error || 'unknown error')}`;
+  else text = `synced Gmail + Calendar · ${ev.new_events ? `<b>${esc(plural(ev.new_events, 'new event'))}</b>` : 'nothing new'}`;
+  const cls = `line sync-line${ev.status === 'start' ? ' running' : ''}${ev.status === 'error' ? ' err' : ''}`;
+  const html = `<span class="li">${SYNC_SVG}</span><span class="lt">${text}</span>`;
+  if (last && last.classList.contains('sync-line')) {
+    last.className = cls;
+    last.innerHTML = html;
+  } else {
+    appendFeed(node('div', cls, html), live);
+  }
+  if (live) setSyncing(ev.status === 'start');
+}
+
+function onChat(ev, live) {
+  const who = ev.role === 'user' ? 'you' : 'memento';
+  const chips = (ev.surfaced || []).map((s) => `📌 ${esc(s.title || shortSlug(s.slug))}${s.p != null ? ` ${fmtP(s.p)}` : ''}`).join(' · ');
+  feedLine('💬', `<b>${who}:</b> ${esc(ev.text)}${chips ? ` · ${chips}` : ''}`, live);
+}
+
+/* ================= toasts ================= */
+function toast(html, cls = '', ms = 6000) {
+  const box = $('#toasts');
+  const t = node('div', `toast ${cls}`, html);
+  let gone = false;
+  const dismiss = () => { if (gone) return; gone = true; t.classList.add('out'); setTimeout(() => t.remove(), 320); };
+  t.onclick = dismiss;
+  box.appendChild(t);
+  while (box.childElementCount > 3) box.firstElementChild.remove();
+  setTimeout(dismiss, ms);
+}
+const toastInfo = (text) => toast(esc(text), 'small', 2600);
+const toastError = (text) => toast(`⚠️ ${esc(text)}`, 'small err', 5000);
+
+/* ================= dispatch ================= */
+function handle(ev, live) {
+  if (!ev || typeof ev !== 'object') return;
+  switch (ev.type) {
+    case 'event_in': return onEventIn(ev, live);
+    case 'jev': return onJev(ev, live);
+    case 'gate': return onGate(ev, live);
+    case 'writer': return onWriter(ev, live);
+    case 'memory': return onMemory(ev, live);
+    case 'fired': return onFired(ev, live);
+    case 'chat': return onChat(ev, live);
+    case 'clock': return onClock(ev, live);
+    case 'sync': return onSync(ev, live);
+    default: feedLine('•', `<b>${esc(ev.type || 'event')}</b> ${esc(JSON.stringify(ev).slice(0, 160))}`, live);
+  }
+}
+
+function ensureEmpty() {
+  if (!$('#feed').childElementCount) {
+    const e = node('div', 'empty', '<span class="big">📡</span>Listening for email and calendar…<br>Send a real Gmail, <b>simulate</b> one, or hit <b>sync now</b>.');
+    e.id = 'feed-empty';
+    $('#feed').appendChild(e);
+  }
+  if (!$('#mems').childElementCount) {
+    const e = node('div', 'empty', '<span class="big">🧠</span>No memories yet.<br>They appear here as emails and events arrive.');
+    e.id = 'mems-empty';
+    $('#mems').appendChild(e);
+  }
+  if (!$('#reached').childElementCount) {
+    const e = node('div', 'empty', '<span class="big">🔕</span>Nothing yet. Memento will reach you when a memory decides it matters.');
+    e.id = 'reached-empty';
+    $('#reached').appendChild(e);
+  }
+}
+
+function applyState(st) {
+  st = st || {};
+  S.replaying = true;
+  try {
+    if (st.now) setClock(st.now, st.offset_minutes, false);
+    S.memories.clear();
+    for (const m of Array.isArray(st.memories) ? st.memories : []) if (m && m.slug) S.memories.set(m.slug, m);
+    $('#feed').innerHTML = '';
+    $('#reached').innerHTML = '';
+    S.eventCards.clear();
+    S.writers = [];
+    S.lastFired.clear();
+    S.rewriteCards.clear();
+    S.lastOffset = null;
+    for (const ev of Array.isArray(st.feed) ? st.feed : []) {
+      try { handle(ev, false); } catch (e) { console.warn('replay failed', e, ev); }
+    }
+    S.lastOffset = Number(st.offset_minutes) || 0;
+    renderAllMemories();
+  } finally {
+    S.replaying = false;
+  }
+  ensureEmpty();
+  const f = $('#feed');
+  f.scrollTop = f.scrollHeight;
+  S.sticky = true;
+  $('#newpill').classList.remove('show');
+  $('#reached').scrollTop = 0;
+  tick();
+}
+
+/* ================= network ================= */
+async function api(path, body) {
+  const opt = body === undefined ? {}
+    : body === null ? { method: 'POST' }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const r = await fetch(path, opt);
+  const txt = await r.text();
+  let data = null;
+  try { data = txt ? JSON.parse(txt) : null; } catch { data = null; }
+  if (!r.ok) {
+    const detail = data && (data.detail || data.error);
+    throw new Error(detail ? `${r.status}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : `${r.status} ${r.statusText || 'error'}`);
+  }
+  return data ?? {};
+}
+function setConn(state) {
+  const c = $('#conn');
+  c.dataset.state = state;
+  c.title = `live stream: ${state}`;
+}
+async function loadState() {
+  try {
+    applyState(await api('/api/state'));
+    return true;
+  } catch (e) {
+    console.warn('GET /api/state failed', e);
+    setConn('offline');
+    return false;
+  }
+}
+function onStreamMessage(msg, typeHint) {
+  const data = String(msg.data ?? '');
+  let evs;
+  try { evs = [JSON.parse(data)]; } catch {
+    evs = data.split('\n').map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  }
+  for (const ev of evs) {
+    if (typeHint && ev && !ev.type) ev.type = typeHint;
+    try { handle(ev, true); } catch (e) { console.error('event failed', e, ev); }
+  }
+}
+function connect() {
+  if (S.es) { try { S.es.close(); } catch { /* ignore */ } }
+  const es = new EventSource('/api/stream');
+  S.es = es;
+  es.onopen = () => {
+    setConn('live');
+    if (S.needResync) { S.needResync = false; loadState(); }
+  };
+  es.onmessage = (m) => onStreamMessage(m);
+  for (const t of EVENT_TYPES) es.addEventListener(t, (m) => onStreamMessage(m, t));
+  es.onerror = () => {
+    S.needResync = true;
+    if (es.readyState === EventSource.CLOSED) {
+      setConn('offline');
+      setTimeout(() => { if (S.es === es) connect(); }, 2000);
+    } else setConn('reconnecting');
+  };
+}
+
+/* ================= controls ================= */
+function setSyncing(on) {
+  $('#btn-sync').classList.toggle('syncing', !!on);
+  clearTimeout(S.syncTimer);
+  if (on) S.syncTimer = setTimeout(() => setSyncing(false), 30000);
+}
+async function clockPost(body, btn) {
+  btn.disabled = true;
+  try {
+    const r = await api('/api/clock', body);
+    if (r && r.now) setClock(r.now, r.offset_minutes, true);
+  } catch (e) {
+    toastError(`clock: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+async function syncNow() {
+  setSyncing(true);
+  try { await api('/api/sync', null); } catch (e) { setSyncing(false); toastError(`sync: ${e.message}`); }
+}
+function fillPreset(i) {
+  const p = PRESETS[i];
+  const f = $('#sim-form').elements;
+  if (!p) return;
+  f.from.value = p.from;
+  f.subject.value = p.subject;
+  f.body.value = p.body;
+}
+function openSim() {
+  const f = $('#sim-form').elements;
+  if (!f.subject.value && !f.body.value) fillPreset(0);
+  $('#modal').classList.add('open');
+  setTimeout(() => f.subject.focus(), 30);
+}
+function closeSim() { $('#modal').classList.remove('open'); }
+async function submitSim(e) {
+  e.preventDefault();
+  const form = e.currentTarget, f = form.elements;
+  const data = { from: f.from.value.trim(), subject: f.subject.value.trim(), body: f.body.value };
+  if (!data.subject) { f.subject.focus(); return; }
+  const btn = form.querySelector('[type=submit]');
+  btn.disabled = true;
+  try {
+    await api('/api/simulate/email', data);
+    closeSim();
+    toastInfo(`✉️ email injected: ${data.subject}`);
+  } catch (err) {
+    toastError(`simulate email: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+function wireUI() {
+  $('#sync-ico').innerHTML = SYNC_SVG;
+  for (const b of $$('[data-adv]')) b.addEventListener('click', () => clockPost({ advance_minutes: Number(b.dataset.adv) }, b));
+  $('#btn-reset').addEventListener('click', (e) => clockPost({ reset: true }, e.currentTarget));
+  $('#btn-sync').addEventListener('click', syncNow);
+  $('#btn-sim').addEventListener('click', openSim);
+  $('#sim-close').addEventListener('click', closeSim);
+  $('#modal').addEventListener('mousedown', (e) => { if (e.target.id === 'modal') closeSim(); });
+  $('#sim-form').addEventListener('submit', submitSim);
+  $('#sim-form').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('#sim-form').requestSubmit(); }
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSim(); });
+  for (const b of $$('[data-preset]')) b.addEventListener('click', () => fillPreset(Number(b.dataset.preset)));
+  for (const b of $$('[data-gmail]')) b.addEventListener('click', () => gmailSend(b.dataset.gmail, b));
+  const f = $('#feed');
+  f.addEventListener('scroll', () => {
+    S.sticky = f.scrollHeight - f.scrollTop - f.clientHeight < 60;
+    if (S.sticky) $('#newpill').classList.remove('show');
+  });
+  $('#newpill').addEventListener('click', () => { f.scrollTop = f.scrollHeight; });
+}
+
+async function boot() {
+  wireUI();
+  ensureEmpty();
+  tick();
+  setInterval(tick, 1000);
+  while (!(await loadState())) await sleep(2000);
+  connect();
+}
+boot();
+})();
+</script>
+</body>
+</html>
