@@ -8,6 +8,7 @@ is meant to be read by the LLM that wrote the recipe.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 import subprocess
@@ -76,7 +77,7 @@ def lint(source: str) -> list[str]:
 
 
 def collect(source: str, *, memory: str, timeout: float = 10.0) -> Recipe:
-    """Validate and run `source`; return its triggers, with ids `<memory>#<n>`."""
+    """Validate and run `source`; return its triggers, with ids `<memory>#<n>-<content hash>`."""
     problems = lint(source)
     if problems:
         raise RecipeError("; ".join(problems))
@@ -96,7 +97,10 @@ def collect(source: str, *, memory: str, timeout: float = 10.0) -> Recipe:
     if not recipe.triggers:
         raise RecipeError("the recipe declares no triggers; add remind(...) or on(...)")
     for n, trigger in enumerate(recipe.triggers):
-        trigger.id = f"{memory}#{n}"
+        # Content-derived, so a rewritten trigger is a new trigger (its own fired state),
+        # while an unchanged one keeps its identity across re-registration.
+        digest = hashlib.sha1(trigger.model_dump_json(exclude={"id"}).encode()).hexdigest()[:6]
+        trigger.id = f"{memory}#{n}-{digest}"
     return recipe
 
 
@@ -136,4 +140,30 @@ def fmt(source: str) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return source
     formatted = done.stdout if done.returncode == 0 and done.stdout.strip() else source
-    return _split_long_strings(formatted)
+    return _split_long_strings(_pack_imports(formatted))
+
+
+def _pack_imports(source: str) -> str:
+    """Replace `from memento import (...)` blocks with as few <= MAX_COLS lines as fit."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+    imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.module == "memento"]
+    if not imports or any(a.asname for n in imports for a in n.names):
+        return source
+    names = list(dict.fromkeys(a.name for n in imports for a in n.names))
+    packed, line = [], "from memento import "
+    for name in names:
+        piece = name if line.endswith("import ") else f", {name}"
+        if len(line) + len(piece) > MAX_COLS:
+            packed.append(line)
+            line, piece = "from memento import ", name
+        line += piece
+    packed.append(line)
+    lines = source.splitlines()
+    drop = {i for n in imports for i in range(n.lineno - 1, n.end_lineno)}
+    first = imports[0].lineno - 1
+    out = [x for i, x in enumerate(lines[:first]) if i not in drop] + packed
+    out += [x for i, x in enumerate(lines[first:], first) if i not in drop]
+    return "\n".join(out) + ("\n" if source.endswith("\n") else "")

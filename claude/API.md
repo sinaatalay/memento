@@ -26,13 +26,17 @@ type State = {
 };
 
 type MemoryView = {
-  slug: string;                // e.g. "memories/flight-ua-123"
+  slug: string;                // unique key: page slug, prefixed "<source>:" unless it lives in the `mem` source
+  path: string;                // the page's slug inside GBrain, e.g. "projects/acme-pilot"
+  source: string;              // GBrain source id: "mem" or "default"
+  origin: "memento" | "you";   // Memento wrote it from an email, or a person/agent wrote the page
+  error: string | null;        // why the recipe doesn't run, if it doesn't
   title: string;
   body: string;                // markdown, what to remember
   recipe: string;              // the Python module (show it syntax-highlighted, monospace)
   sources: string[];           // slugs of the emails/events it came from
   expires: string | null;      // ISO
-  status: "active" | "expired";
+  status: "active" | "expired" | "error";
   triggers: TriggerView[];
   updated_at: string;          // ISO
 };

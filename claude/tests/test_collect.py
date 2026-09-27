@@ -28,7 +28,8 @@ expires(departure + hours(6))
 def test_flight_recipe():
     r = collect(FLIGHT, memory="memories/flight")
     assert [t.kind for t in r.triggers] == ["time", "time", "event", "event"]
-    assert r.triggers[0].id == "memories/flight#0"
+    assert r.triggers[0].id.startswith("memories/flight#0-")
+    assert collect(FLIGHT, memory="memories/flight").triggers[0].id == r.triggers[0].id  # stable
     assert r.triggers[0].fire_at.isoformat() == "2026-09-27T08:05:00-07:00"
     assert r.expires.isoformat() == "2026-09-28T14:05:00-07:00"
 
@@ -59,3 +60,13 @@ def test_fmt_splits_long_questions_into_adjacent_literals():
     recipe = collect(out, memory="m")
     assert recipe.triggers[0].when.question.endswith("before October 15?")
     assert "  " not in recipe.triggers[0].when.question
+
+
+def test_fmt_packs_exploded_imports():
+    exploded = "from memento import (\n" + "".join(
+        f"    {n},\n" for n in ["at", "days", "remind", "on", "email", "noul", "alert", "rewrite", "expires", "this"]
+    ) + ")\n\ndue = at('2026-10-15 23:59')\nremind(due - days(1), 'Renew registration')\n"
+    out = fmt(exploded)
+    imports = [line for line in out.splitlines() if line.startswith("from memento import")]
+    assert len(imports) == 2 and all(len(line) <= 78 for line in imports)
+    assert len(collect(out, memory="m").triggers) == 1
