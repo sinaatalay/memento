@@ -1,0 +1,29 @@
+{
+  "name": "memento-launch-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "cues": "bun scripts/export-cues.ts",
+    "audio": "bun scripts/export-cues.ts && uv run --project audio audio/score.py",
+    "render": "remotion render Memento out/memento.mp4",
+    "still": "remotion still Memento",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.529",
+    "@remotion/cli": "4.0.529",
+    "@remotion/fonts": "4.0.529",
+    "@remotion/media": "4.0.529",
+    "@remotion/renderer": "4.0.529",
+    "opentype.js": "^1.3.4",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/opentype.js": "^1.3.8",
+    "typescript": "^5.9.3"
+  }
+}
