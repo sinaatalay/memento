@@ -357,11 +357,21 @@ class Runtime:
         )
 
 
+def span(delta) -> str:
+    """7 days -> "week", 2 hours -> "2 hours"."""
+    seconds = int(delta.total_seconds())
+    for size, unit in ((604800, "week"), (86400, "day"), (3600, "hour"), (60, "minute")):
+        if seconds % size == 0:
+            n = seconds // size
+            return unit if n == 1 else f"{n} {unit}s"
+    return str(delta)
+
+
 def describe(trigger: Trigger) -> str:
     if trigger.kind == "at":
         spec = f"@at {trigger.at:%a %b %-d %-I:%M %p}"
         if trigger.every:
-            spec += f", every {trigger.every}"
+            spec += f", every {span(trigger.every)}"
     else:
         spec = f'@when "{trigger.claim}"'
     if trigger.until:
