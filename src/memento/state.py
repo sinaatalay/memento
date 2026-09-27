@@ -54,10 +54,12 @@ def set_offset(value: timedelta) -> None:
 
 _SPAN = re.compile(r"(\d+(?:\.\d+)?)(min|m|h|d|w)")
 _UNITS = {"m": "minutes", "min": "minutes", "h": "hours", "d": "days", "w": "weeks"}
+_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+_WEEKDAY = re.compile(r"(mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+(\d{1,2}):(\d{2})")
 
 
 def travel(spec: str) -> datetime:
-    """`+3h`, `-1d`, `+1d2h`, `reset`, or an absolute "YYYY-MM-DD HH:MM". Returns the new now."""
+    """`+3h`, `-1d`, `+1d2h`, `mon 7:45`, `reset`, or "YYYY-MM-DD HH:MM". Returns the new now."""
     spec = spec.strip().lower()
     if spec in ("reset", "now"):
         set_offset(timedelta())
@@ -68,6 +70,15 @@ def travel(spec: str) -> datetime:
             raise ValueError(f"can't read {spec!r}; try +3h, -1d, +1d2h, +30m or reset")
         span = sum((timedelta(**{_UNITS[u]: float(n)}) for n, u in parts), timedelta())
         set_offset(offset() + (-span if spec[0] == "-" else span))
+    elif m := _WEEKDAY.fullmatch(spec):
+        # "mon 7:45": the next Monday at 7:45 (today, if that's still ahead)
+        day = [d[:3] for d in _DAYS].index(m.group(1)[:3])
+        current = now()
+        target = current.replace(hour=int(m.group(2)), minute=int(m.group(3)), second=0)
+        target += timedelta(days=(day - current.weekday()) % 7)
+        if target <= current:
+            target += timedelta(weeks=1)
+        set_offset(target - datetime.now(TZ).replace(microsecond=0))
     else:
         target = datetime.fromisoformat(spec)
         target = target if target.tzinfo else target.replace(tzinfo=TZ)

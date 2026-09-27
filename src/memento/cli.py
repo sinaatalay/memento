@@ -5,7 +5,7 @@
     memento show SLUG           a memory's recipe
     memento check FILE          load a recipe (a page .md, a .py, or -) and list its triggers
     memento write SLUG          have River write (or rewrite) a page's recipe now
-    memento time [+3h|-1d|reset|"2026-09-28 05:00"]   show or move the clock
+    memento time [+3h|-1d|"mon 7:45"|reset]   show or move the clock
 """
 
 from __future__ import annotations
@@ -28,38 +28,31 @@ from .runtime import Runtime, describe, next_fire, watching
 out = Console(highlight=False)
 
 
-def _runtime(models: bool) -> Runtime:
-    brain = Brain()
+def _runtime(models: bool = False) -> Runtime:
+    """A runtime over the configured brain with every recipe loaded; Jev and River if `models`."""
     jev = river = None
     if models:
         from .jev import Jev
         from .river import River
 
         jev, river = Jev(), River()
-    runtime = Runtime(brain, jev, river)
-    for slug in brain.slugs():
-        if stored := brain.read(slug):
+    runtime = Runtime(Brain(), jev, river)
+    for slug in runtime.brain.slugs():
+        if stored := runtime.brain.read(slug):
             runtime.register(stored)
     return runtime
 
 
 def cmd_run(args) -> None:
-    runtime = Runtime(Brain(), *_models())
+    runtime = _runtime(models=True)
     try:
         asyncio.run(runtime.run())
     except KeyboardInterrupt:
         runtime.state.save()
 
 
-def _models():
-    from .jev import Jev
-    from .river import River
-
-    return Jev(), River()
-
-
 def cmd_ls(args) -> None:
-    runtime = _runtime(models=False)
+    runtime = _runtime()
     now = runtime.now()
     if not runtime.memories:
         out.print("[dim]No proactive memories yet.[/]")
@@ -151,7 +144,7 @@ def main() -> None:
     p.add_argument("slug")
     p.set_defaults(fn=cmd_write)
     p = sub.add_parser("time", help="show or move the clock (for demos)")
-    p.add_argument("spec", nargs="*", help='+3h, -1d, +1d2h, reset, or "YYYY-MM-DD HH:MM"')
+    p.add_argument("spec", nargs="*", help='+3h, -1d, +1d2h, "mon 7:45", reset, or "YYYY-MM-DD HH:MM"')
     p.set_defaults(fn=cmd_time)
     args = parser.parse_args()
     args.fn(args)

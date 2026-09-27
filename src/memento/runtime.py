@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from rich.console import Console
 from rich.markup import escape
@@ -28,6 +28,7 @@ from .recipe import Recipe, load, run
 from .river import River
 
 WORTH = 0.5  # P(worth a recipe) above which River is asked; River may still say NONE
+LATE = timedelta(hours=1)  # a reminder later than this (runtime was off, clock jumped) is stale: skip it
 
 
 @dataclass
@@ -219,7 +220,11 @@ class Runtime:
                 moment = next_fire(trigger, record, now)
                 if moment is not None and moment <= now:
                     record["fired"] = now.isoformat()
-                    self.spawn(self.fire(memory, trigger))
+                    if now - moment > LATE:
+                        late = f"{(now - moment).total_seconds() / 3600:.0f}h"
+                        self.say("fire", f"[dim]{escape(memory.page.title)} › {trigger.name}() skipped, {late} late[/]")
+                    else:
+                        self.spawn(self.fire(memory, trigger))
 
     # ---- handlers and effects ----
 

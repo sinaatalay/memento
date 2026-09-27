@@ -230,3 +230,18 @@ def test_a_broken_recipe_is_reported_not_run(world):
     runtime = Runtime(brain, FakeJev({}), FakeRiver({}))
     runtime.scan(baseline=True)
     assert "only `from memento import" in runtime.memories["notes/bad"].error
+
+
+def test_a_reminder_long_overdue_is_skipped(world):
+    brain, clock, sent = world
+    brain.put("trips/nyc", page("Flight to NYC", "UA123 Monday 8:05am", FLIGHT_RECIPE))
+    runtime = Runtime(brain, FakeJev({}), FakeRiver({}))
+    runtime.scan(baseline=True)
+
+    async def at(moment):
+        clock["now"] = moment
+        runtime.check_timers()
+        await settle(runtime)
+
+    asyncio.run(at(datetime(2026, 9, 28, 7, 30, tzinfo=TZ)))  # 5:05 was 2h25m ago
+    assert sent == []
