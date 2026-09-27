@@ -118,29 +118,55 @@ def send_the_deck():
 Recipes are written from untrusted input (an email can say anything), so they
 run under an allow-list: only `from memento import …`, no private names or
 attributes, no `while`, restricted builtins, bounded `range`. Handlers only
-record effects; the runtime carries them out. [examples/](examples/) has six
-complete memories: a flight, a promise with a conditional nudge, an intro
-waiting for the right person, an escalation read with `rate`, a weekly call and
-a birthday, a passport countdown.
+record effects; the runtime carries them out.
+
+## What it's for
+
+Reminders are the least of it. [examples/](examples/) has thirteen memories;
+the interesting ones are memories that wait for the world:
+
+| memory | shape | what comes back, and when |
+|---|---|---|
+| [Priya is hiring](examples/priya-hiring.md) | a need that news can meet | "Intro for Priya?", the day you write down coffee with a designer who's leaving Figma |
+| [Stay on one Postgres](examples/decision-postgres.md) | a decision with tripwires | "Revisit the decision", when an incident review shows 7.2k writes/sec or a customer demands EU residency |
+| [Competitor: Linear](examples/battlecard-linear.md) | a belief that can go stale | "Our agency wedge is gone", the day Linear ships time tracking; not for their Series C, a forum request, or Jira |
+| [The March outage](examples/lesson-migrations.md) | a lesson waiting for its situation | "Move it to Tuesday", when someone plans a Friday migration before a launch |
+| [MacBook Pro](examples/applecare.md) | coverage that matters when things break | "Don't pay for the repair", when you mention the coffee on the keyboard |
+| [Northwind early exercise](examples/83b-election.md) | a deadline that starts when something happens | when Carta confirms the exercise, River turns "within 30 days" into dated reminders for Oct 29 that stop once the 83(b) is mailed |
+| [Churn hypothesis](examples/churn-hypothesis.md) | a hypothesis collecting evidence | every churn interview lands on the page's timeline; `which()` flags the ones that blame price |
+| [Maria Santos](examples/owed-intro.md) | a promise owed to you | a nudge on Friday only if her intro hasn't arrived |
+
+River recognizes these kinds on its own: given only each memory's plain text,
+it wrote recipes like these (the churn one is rewritten by hand to show
+`which()`).
 
 ## Measured
 
-Live Jev (`jev-1.13.0`) against the example claims. Every match fired and every
-near miss stayed quiet, at the 0.8 threshold:
+Live Jev (`jev-1.13.0`) against the example claims: every match fired and
+every near miss stayed quiet. A claim fires at P ≥ 0.6; across 33 checks the
+near misses scored at most 0.04 and the matches 0.72–0.99. A few of them:
 
 | memory | news | P(claim) |
 |---|---|---:|
 | Flight to NYC | "UA 123 on Monday, September 28 now departs at 10:40 AM instead of 8:05" | 0.98 |
-| | "your flight UA123 … on Sep 28 has been cancelled" | 0.97 |
 | | "Your trip is confirmed: UA123 SFO to JFK, Monday Sep 28" | 0.02 |
-| | "Upgrade offer: move to Economy Plus on UA123" | 0.02 |
 | | "Flight DL400 to Boston on Monday is delayed" | 0.01 |
 | Priya is hiring a designer | "Alex Chen: senior product designer at Figma, leaving, wants a founding role" | 0.97 |
 | | "Figma is hiring a senior product designer" | 0.04 |
-| Acme needs our SOC 2 | "your SOC 2 Type I report has been issued" | 0.98 |
-| | "SOC 2 audit fieldwork is scheduled for October 12-14" | 0.02 |
-| Deck promised to Priya | "Sent Priya Raman the seed investor deck this morning" | 0.99 |
-| | "Still polishing the investor deck for Priya" | 0.02 |
+| Competitor: Linear | "Linear changelog: Introducing Time Tracking" | 0.93 |
+| | "Forum thread: Linear users ask when time tracking is coming" | 0.02 |
+| Northwind early exercise | "Your exercise of 40,000 Northwind options was completed" | 0.89 |
+| | "Your exercise request … is pending board approval" | 0.02 |
+| Stay on one Postgres | "procurement says they can only sign if all customer data stays in the EU" | 0.72 |
+| | "they asked for our SOC 2 report and a security questionnaire" | 0.02 |
+| MacBook Pro | "Spilled coffee on my MacBook keyboard" | 0.80 |
+| | "Cracked my iPad screen on the train" | 0.01 |
+
+Whether a new page deserves a recipe at all is three narrow Jev questions
+(time, knowledge, coverage), cut at 0.5. Nine use cases like these scored
+0.66–0.97; groceries, a book note, a preference, a finished appointment and a
+standup scored at most 0.18. A plain vendor fact ("Stripe charges 2.9% + 30c")
+came closest at 0.46; River gets a second chance to answer NONE.
 
 Each single question took 70–130 ms. Every watch in the examples plus the
 worth-a-recipe question, eight in all, took 80–90 ms together in one request.

@@ -68,6 +68,70 @@ CASES = [
             "Still polishing the investor deck for Priya, should be done tomorrow.",
         ],
     ),
+    (
+        "decision-postgres",
+        "our Postgres write volume",
+        ["Incident review: writes held at 7.2k/sec for 40 minutes during the Acme bulk import."],
+        ["Weekly metrics: writes averaged 1.8k/sec, p99 latency flat."],
+    ),
+    (
+        "decision-postgres",
+        "a customer requires",
+        [
+            "Siemens call notes: procurement says they can only sign if all customer data "
+            "stays in the EU."
+        ],
+        ["Siemens call notes: they asked for our SOC 2 report and a security questionnaire."],
+    ),
+    (
+        "battlecard-linear",
+        "Linear launched",
+        ["Linear changelog: Introducing Time Tracking. Log hours on any issue, on all plans."],
+        [
+            "Linear raises an $80M Series C.",
+            "Forum thread: Linear users ask when time tracking is coming.",
+            "Jira ships improvements to its time tracking reports.",
+        ],
+    ),
+    (
+        "83b-election",
+        "the early exercise",
+        [
+            "Carta: Your exercise of 40,000 Northwind options was completed on Tuesday, "
+            "September 29."
+        ],
+        ["Carta: Your exercise request for 40,000 Northwind options is pending board approval."],
+    ),
+    (
+        "lesson-migrations",
+        "a database migration",
+        ["Deploy plan: run the billing schema migration Friday afternoon, before Monday's launch."],
+        [
+            "Ran the billing migration Tuesday morning, all green.",
+            "Launch checklist for Monday: update the pricing page, send the announcement.",
+        ],
+    ),
+    (
+        "applecare",
+        "my 14-inch MacBook Pro",
+        ["Spilled coffee on my MacBook keyboard this morning, half the keys are dead."],
+        [
+            "Thinking about a MacBook Air for my sister's birthday.",
+            "Cracked my iPad screen on the train.",
+        ],
+    ),
+    (
+        "churn-hypothesis",
+        "a customer explains",
+        ["Interview with Bolt Labs (churned in Aug): 'Honestly it was the price. Our bill doubled.'"],
+        ["Interview with Tandem (active customer): they love the new dashboard."],
+    ),
+    (
+        "owed-intro",
+        "Maria Santos introduced",
+        ["Email from Maria Santos: Intro: you <> Devon (Head of Infra, Stripe). Devon, meet Sina..."],
+        ["Email from Maria Santos: Great seeing you yesterday! Let's grab dinner soon."],
+    ),
 ]
 
 
@@ -101,3 +165,32 @@ def test_claims_with_real_jev(example, claim, fire, quiet):
     fired, stayed = asyncio.run(all_())
     assert all(v >= FIRES for v in fired), list(zip(fire, fired, strict=True))
     assert all(v < FIRES for v in stayed), list(zip(quiet, stayed, strict=True))
+
+
+@pytest.mark.skipif(not os.environ.get("TYPESAFE_API_KEY"), reason="live Jev check needs TYPESAFE_API_KEY")
+def test_which_reads_the_churn_reason_with_real_jev():
+    import asyncio
+
+    from memento.api import Which
+    from memento.jev import Jev
+
+    reasons = Which(
+        "What does the customer give as the main reason?",
+        (
+            ("onboarding", "setup, onboarding or getting started was too hard"),
+            ("price", "price, cost or the bill"),
+            ("other", "missing features, switching tools, or anything else"),
+        ),
+    )
+    interviews = {
+        "price": "Bolt Labs churned: 'Honestly it was the price. When our seats doubled, so did the bill.'",
+        "onboarding": "Quill churned: 'We never got it set up. Importing our projects took weeks.'",
+        "other": "Harbor churned: 'We moved everything to Notion when we consolidated tools.'",
+    }
+
+    async def ask(text):
+        page = Page("n", "Churn interview", text)
+        return (await Jev().ask(page, NOW, {"q": reasons})).values["q"]
+
+    got = {want: asyncio.run(ask(text)) for want, text in interviews.items()}
+    assert got == {"price": "price", "onboarding": "onboarding", "other": "other"}
