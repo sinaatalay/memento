@@ -12,13 +12,14 @@ const args = process.argv.slice(2);
 const compId = process.env.COMP ?? "Memento";
 const times = args.map(Number);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-mkdirSync(path.join(root, "out/stills"), { recursive: true });
+const outDir = path.resolve(root, process.env.OUT ?? "out/stills");
+mkdirSync(outDir, { recursive: true });
 
 const serveUrl = await bundle({ entryPoint: path.join(root, "src/index.ts"), publicDir: path.join(root, "public") });
 const composition = await selectComposition({ serveUrl, id: compId, inputProps: {} });
 for (const s of times) {
   const frame = Math.min(composition.durationInFrames - 1, Math.round(s * composition.fps));
-  const output = path.join(root, `out/stills/${s.toFixed(2)}.png`);
+  const output = path.join(outDir, `${s.toFixed(2)}.png`);
   await renderStill({ serveUrl, composition, frame, output, chromiumOptions: { gl: "angle" } });
   console.log(output);
 }
