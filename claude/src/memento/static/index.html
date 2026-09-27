@@ -177,7 +177,8 @@ main{display:grid;grid-template-columns:minmax(0,25fr) minmax(0,37fr) minmax(0,3
 .line.clickable{cursor:pointer}.line.clickable:hover{color:var(--muted)}
 .line.running .li{animation:spin 1.1s linear infinite}
 .line.clock-line{color:#c9a45a}.line.clock-line b{color:var(--accent)}
-.line.send-line{color:#c9a45a;font-size:.9rem}.line.send-line b{color:var(--text)}
+.line.send-line{color:#c9a45a;font-size:.9rem;align-items:flex-start}.line.send-line b{color:var(--text)}
+.line.send-line .lt{white-space:normal}
 .line.send-line .secs{font-family:var(--mono);color:var(--accent);font-weight:700}
 .line.send-line.waiting .li{animation:bob 1.2s ease-in-out infinite}
 .line.send-line.arrived{color:var(--good)}.line.send-line.arrived .secs{color:var(--good)}
@@ -798,6 +799,7 @@ function jevBlock(ev, live) {
   const top = all.slice(0, JEV_ROWS);
   const nFired = all.filter((r) => r.fired).length;
   const nq = ev.n_questions ?? all.length;
+  const nt = ev.n_triggers ?? nq;  // triggers only; the write gate is one extra question
   const rows = top.map((r) => {
     const p = clamp01(r.p), th = r.threshold != null ? clamp01(r.threshold) : null;
     const w = (p * 100).toFixed(1);
@@ -811,8 +813,8 @@ function jevBlock(ev, live) {
   }).join('');
   const more = nq - top.length;
   const summary = nFired
-    ? `<div class="jev-sum yes">🔥 <span><b>${nFired} of ${esc(nq)}</b> fired</span></div>`
-    : `<div class="jev-sum no">nothing fired · 0 of ${esc(nq)}</div>`;
+    ? `<div class="jev-sum yes">🔥 <span><b>${nFired} of ${esc(nt)}</b> fired</span></div>`
+    : `<div class="jev-sum no">nothing fired · 0 of ${esc(nt)}</div>`;
   const d = node('div', `jev${nFired ? ' has-fired' : ''}`, `
     <div class="jev-head">
       <span class="jev-name">⚡ Jev</span>

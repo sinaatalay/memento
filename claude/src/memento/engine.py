@@ -121,7 +121,9 @@ class Engine:
 
     def publish(self, event: dict) -> None:
         event.setdefault("at", self.now().isoformat())
-        self.feed.append(event)
+        routine = event["type"] == "sync" and event.get("status") != "error" and not event.get("new_events")
+        if not routine:  # streamed live, but kept out of the stored feed so history survives a reload
+            self.feed.append(event)
         for queue in list(self.listeners):
             queue.put_nowait(event)
 
@@ -291,6 +293,7 @@ class Engine:
                 "event_id": event_id,
                 "source": source.value,
                 **stats,
+                "n_triggers": len(pairs),
                 "results": [
                     {"trigger_id": t.id, "memory": m.slug, "title": m.title, "question": t.when.question,
                      "p": round(p, 3), "threshold": t.threshold, "fired": p >= t.threshold}
