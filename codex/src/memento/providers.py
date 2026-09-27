@@ -89,11 +89,38 @@ def to_jev_question(question: Any):
 
 def memory_gate(source: str = "email") -> dict[str, Any]:
     """One narrow question, batched with event triggers in the same Jev call."""
+    if source == "chat":
+        return {
+            "kind": "noul",
+            "question": (
+                "Does the USER MESSAGE in event.text or event.body itself affirm "
+                "a new personal fact, preference, or definite commitment to save? "
+                "Judge only the incoming message, not relevant_memories."
+            ),
+            "options": {
+                "true": (
+                    "The user explicitly asks to remember a specific fact, or "
+                    "states an affirmed personal fact or preference, confirmed arrangement, "
+                    "or definite promise. For example: 'Remember I prefer aisle "
+                    "seats', 'Breakfast with Ana is confirmed for Monday at 7', "
+                    "or 'I promised to send Maya the proposal Friday'."
+                ),
+                "false": (
+                    "A question, suggestion, invitation, hypothetical or "
+                    "tentative proposal without an explicit request to save it. "
+                    "'Can we grab breakfast Monday at 7 before my trip?' is only "
+                    "a proposal, not a confirmed arrangement. Asking about an "
+                    "existing trip does not create a new fact. Ignore facts "
+                    "that appear only in relevant_memories or calendar_context."
+                ),
+            },
+        }
     return {
         "kind": "noul",
         "question": (
-            "Does this event contain a concrete personal fact, commitment, "
-            "booking, deadline, or explicit request that the user will need later?"
+            "Does the incoming event itself contain a concrete personal fact, "
+            "commitment, booking, deadline, or explicit request that the user "
+            "will need later? Judge only event, not relevant_memories."
         ),
         "options": {
             "true": (

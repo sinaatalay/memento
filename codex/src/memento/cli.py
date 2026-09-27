@@ -14,22 +14,24 @@ def build_runtime(settings: Settings, *, use_gbrain=False):
     from .providers import JevEvaluator
     from .runtime import Runtime
     from .storage import Store
-    from .telegram import Telegram
     from .writer import MemoryWriter
 
     store = Store(settings.data_dir / "memento.sqlite3")
     evaluator = JevEvaluator(api_key=settings.jev_api_key) if settings.jev_api_key else None
     writer = MemoryWriter(api_key=settings.river_api_key, model_name=settings.river_model) if settings.river_api_key else None
-    telegram = Telegram(settings.telegram_token, store, settings.telegram_chat_id) if settings.telegram_token else None
     brain = None
-    if use_gbrain or settings.gbrain_enabled:
+    if use_gbrain or settings.gbrain_enabled or settings.email_recipient:
         from .gbrain import GBrain
         bun = shutil.which("bun")
         entry = settings.gbrain_checkout / "src/cli.ts"
         if not bun or not entry.exists():
             raise RuntimeError("GBrain checkout or Bun is missing; see research/gbrain.md")
         brain = GBrain([bun, str(entry)], settings.gbrain_home)
-    return Runtime(settings, store, evaluator=evaluator, writer=writer, brain=brain, telegram=telegram)
+    notifier = None
+    if settings.email_recipient:
+        from .email_notify import EmailNotifier
+        notifier = EmailNotifier(brain, recipient=settings.email_recipient)
+    return Runtime(settings, store, evaluator=evaluator, writer=writer, brain=brain, notifier=notifier)
 
 
 def main():
@@ -62,8 +64,6 @@ def main():
     if args.google:
         settings.gbrain_enabled = True
     runtime = build_runtime(settings, use_gbrain=args.gbrain)
-    if runtime.telegram and not runtime.telegram.chat_id:
-        print(f"Pair your Telegram bot by sending: /start {runtime.telegram.pair_code}")
     print(f"Memento → http://127.0.0.1:{args.port}")
     print(f"Private local state: {settings.data_dir}")
     from .app import create_app
@@ -72,7 +72,7 @@ def main():
 
 
 async def doctor(settings: Settings):
-    report = {"jev": "missing key", "river": "missing key", "telegram": "missing token", "gbrain_checkout": settings.gbrain_checkout.exists(), "data_dir": str(settings.data_dir)}
+    report = {"jev": "missing key", "river": "missing key", "email": "not configured", "gbrain_checkout": settings.gbrain_checkout.exists(), "data_dir": str(settings.data_dir)}
     if settings.jev_api_key:
         from .providers import JevEvaluator, memory_gate
         try:
@@ -91,19 +91,16 @@ async def doctor(settings: Settings):
             report["river"] = {"connected": False, "error_type": type(exc).__name__}
         finally:
             await connection.close()
-    if settings.telegram_token:
-        from .telegram import Telegram
-        from .storage import Store
-        store = Store(settings.data_dir / "memento.sqlite3")
-        bot = Telegram(settings.telegram_token, store, settings.telegram_chat_id)
+    if settings.email_recipient:
+        runtime = build_runtime(settings, use_gbrain=True)
         try:
-            await bot.connect()
-            report["telegram"] = {"connected": True, "username": bot.username, "paired": bool(bot.chat_id)}
+            await runtime.notifier.connect()
+            report["email"] = {"connected": runtime.notifier.ready, "recipient": settings.email_recipient}
         except Exception as exc:
-            report["telegram"] = {"connected": False, "error_type": type(exc).__name__}
+            report["email"] = {"connected": False, "error_type": type(exc).__name__}
         finally:
-            await bot.close()
-            store.close()
+            await runtime.stop()
+            runtime.store.close()
     print(json.dumps(report, indent=2))
 
 

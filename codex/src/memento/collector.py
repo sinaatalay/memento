@@ -164,8 +164,6 @@ def validate_source(source: str) -> ast.Module:
     for number, line in enumerate(source.splitlines(), 1):
         if "\t" in line:
             raise RecipeError(f"line {number}: tabs are not allowed")
-        if len(line) > 78:
-            raise RecipeError(f"line {number}: exceeds 78 characters")
     try:
         tree = ast.parse(source, filename="<memento-recipe>", mode="exec")
     except (SyntaxError, ValueError, RecursionError) as exc:

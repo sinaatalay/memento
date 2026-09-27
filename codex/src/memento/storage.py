@@ -38,7 +38,7 @@ class Store:
                 id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, memory_revision TEXT NOT NULL,
                 event_id TEXT, kind TEXT NOT NULL, text TEXT NOT NULL,
                 status TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT,
-                telegram_message_id TEXT, error TEXT
+                delivery_id TEXT, error TEXT
             );
             CREATE TABLE IF NOT EXISTS traces (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL,
@@ -52,6 +52,19 @@ class Store:
             self.db.execute("ALTER TABLE events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
         if "retry_at" not in columns:
             self.db.execute("ALTER TABLE events ADD COLUMN retry_at TEXT")
+        notification_columns = {row[1] for row in self.db.execute("PRAGMA table_info(notifications)")}
+        if "delivery_id" not in notification_columns:
+            self.db.execute("ALTER TABLE notifications ADD COLUMN delivery_id TEXT")
+            if "telegram_message_id" in notification_columns:
+                self.db.execute("UPDATE notifications SET delivery_id=telegram_message_id")
+        if "attempts" not in notification_columns:
+            self.db.execute("ALTER TABLE notifications ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+        if "retry_at" not in notification_columns:
+            self.db.execute("ALTER TABLE notifications ADD COLUMN retry_at TEXT")
+        if "delivery_subject" not in notification_columns:
+            self.db.execute("ALTER TABLE notifications ADD COLUMN delivery_subject TEXT")
+        if "delivery_text" not in notification_columns:
+            self.db.execute("ALTER TABLE notifications ADD COLUMN delivery_text TEXT")
         self.db.commit()
         path.chmod(0o600)
 
@@ -65,6 +78,19 @@ class Store:
     def set_setting(self, key: str, value: Any) -> None:
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, encode(value)))
+
+    def enable_email_delivery(self) -> str:
+        """Opt in once without sending the backlog accumulated before email."""
+        cutoff = self.setting("email_enabled_since")
+        if cutoff is None:
+            cutoff = stamp()
+            with self.db:
+                self.db.execute("INSERT INTO settings VALUES (?,?)", ("email_enabled_since", encode(cutoff)))
+                self.db.execute(
+                    "UPDATE notifications SET status='local' WHERE status='pending' AND created_at<?",
+                    (cutoff,),
+                )
+        return cutoff
 
     def trace(self, kind: str, title: str, detail: Any = None) -> None:
         with self.db:
@@ -149,18 +175,22 @@ class Store:
         return [{**dict(r), "payload": json.loads(r["payload"])} for r in rows]
 
     def enqueue(self, *, notification_id: str, memory: dict, kind: str, text: str, event_id: str | None = None) -> bool:
+        cutoff = self.setting("email_enabled_since")
+        event = self.event(event_id) if event_id else None
+        historical_event = bool(cutoff and event and event["created_at"] < cutoff)
+        status = "local" if kind == "surface" or historical_event else "pending"
         with self.db:
             result = self.db.execute("""INSERT OR IGNORE INTO notifications
                 (id,memory_id,memory_revision,event_id,kind,text,status,created_at)
-                VALUES(?,?,?,?,?,?,'pending',?)""", (notification_id, memory["id"], memory["revision"], event_id, kind, text, stamp()))
+                VALUES(?,?,?,?,?,?,?,?)""", (notification_id, memory["id"], memory["revision"], event_id, kind, text, status, stamp()))
             if result.rowcount:
                 return True
             # An edit cancels the old pending row. If the same reminder still
             # exists, reattach it to the new revision instead of losing it.
             revived = self.db.execute(
-                """UPDATE notifications SET status='pending',memory_revision=?,error=NULL
+                """UPDATE notifications SET status=?,memory_revision=?,error=NULL,retry_at=NULL
                 WHERE id=? AND status='canceled' AND memory_id=?""",
-                (memory["revision"], notification_id, memory["id"]),
+                (status, memory["revision"], notification_id, memory["id"]),
             )
             return bool(revived.rowcount)
 
@@ -168,9 +198,49 @@ class Store:
         where = "WHERE status='pending'" if pending_only else ""
         return [dict(r) for r in self.db.execute(f"SELECT * FROM notifications {where} ORDER BY created_at DESC LIMIT ?", (limit,))]
 
-    def notification_status(self, notification_id: str, status: str, *, error=None, telegram_id=None) -> None:
+    def notification(self, notification_id: str) -> dict | None:
+        row = self.db.execute("SELECT * FROM notifications WHERE id=?", (notification_id,)).fetchone()
+        return dict(row) if row else None
+
+    def ready_notifications(self, *, now: str | None = None, limit=100) -> list[dict]:
+        return [dict(row) for row in self.db.execute(
+            """SELECT * FROM notifications WHERE status='pending'
+            AND (retry_at IS NULL OR retry_at<=?) ORDER BY created_at LIMIT ?""",
+            (now or stamp(), limit),
+        )]
+
+    def delivery_attempt(self, notification_id: str) -> None:
         with self.db:
-            self.db.execute("UPDATE notifications SET status=?,error=?,telegram_message_id=?,delivered_at=? WHERE id=?", (status, error, telegram_id, stamp() if status == "delivered" else None, notification_id))
+            self.db.execute("UPDATE notifications SET attempts=attempts+1 WHERE id=?", (notification_id,))
+
+    def prepare_delivery(self, notification_id: str, *, subject: str, text: str) -> dict:
+        """Freeze the send payload once; retries must preserve its idempotency key."""
+        with self.db:
+            self.db.execute(
+                """UPDATE notifications SET
+                delivery_subject=COALESCE(delivery_subject,?),
+                delivery_text=COALESCE(delivery_text,?) WHERE id=?""",
+                (subject, text, notification_id),
+            )
+        return self.notification(notification_id)
+
+    def sent_delivery(self, delivery_id: str | None) -> bool:
+        if not delivery_id:
+            return False
+        return self.db.execute(
+            "SELECT 1 FROM notifications WHERE delivery_id=? AND status='delivered' LIMIT 1",
+            (delivery_id,),
+        ).fetchone() is not None
+
+    def notification_status(self, notification_id: str, status: str, *, error=None, delivery_id=None) -> None:
+        with self.db:
+            retry_at = None
+            if status == "pending" and error:
+                row = self.db.execute("SELECT attempts FROM notifications WHERE id=?", (notification_id,)).fetchone()
+                attempt = row[0] if row else 1
+                delay = min(900, 30 * 2 ** min(max(attempt - 1, 0), 5))
+                retry_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
+            self.db.execute("UPDATE notifications SET status=?,error=?,delivery_id=COALESCE(?,delivery_id),delivered_at=?,retry_at=? WHERE id=?", (status, error, delivery_id, stamp() if status == "delivered" else None, retry_at, notification_id))
 
     def traces(self, limit=100) -> list[dict]:
         return [{**dict(r), "detail": json.loads(r["detail"])} for r in self.db.execute("SELECT * FROM traces ORDER BY id DESC LIMIT ?", (limit,))]

@@ -12,10 +12,12 @@ from zoneinfo import ZoneInfo
 
 from .collector import collect
 from .dsl import EventTrigger, Question, Recipe
+from .gbrain import GBrain
+from .google_intake import GoogleAutomatedIntake, normalize_gbrain_event
 from .memory import digest, parse_memory, render_memory
-from .providers import memory_gate
+from .providers import annotate_calendar, memory_gate
 from .settings import Settings
-from .storage import Store
+from .storage import Store, stamp
 
 
 class StaleMemoryError(ValueError):
@@ -28,16 +30,22 @@ def trim_email(text: str) -> str:
 
 
 class Runtime:
-    def __init__(self, settings: Settings, store: Store, *, evaluator=None, writer=None, brain=None, telegram=None):
+    def __init__(self, settings: Settings, store: Store, *, evaluator=None, writer=None, brain=None, notifier=None, google_intake=None):
         self.settings, self.store = settings, store
-        self.evaluator, self.writer, self.brain, self.telegram = evaluator, writer, brain, telegram
+        self.evaluator, self.writer, self.brain, self.notifier = evaluator, writer, brain, notifier
+        if notifier is not None:
+            self.store.enable_email_delivery()
+        self.google_intake = google_intake
+        if self.google_intake is None and settings.gbrain_enabled and isinstance(brain, GBrain):
+            self.google_intake = GoogleAutomatedIntake(brain)
         self.tasks: set[asyncio.Task] = set()
         self.worker_tasks: list[asyncio.Task] = []
         self.event_lock = asyncio.Lock()
         self.memory_lock = asyncio.Lock()
         self.delivery_lock = asyncio.Lock()
+        self.writer_slots = asyncio.Semaphore(2)
         self.stopping = False
-        self.status = {"jev": "configured" if evaluator else "unconfigured", "river": "configured" if writer else "unconfigured", "gbrain": "configured" if brain else "disabled", "google": "waiting" if settings.gbrain_enabled else "disabled", "telegram": "configured" if telegram else "unconfigured"}
+        self.status = {"jev": "configured" if evaluator else "unconfigured", "river": "configured" if writer else "unconfigured", "gbrain": "configured" if brain else "disabled", "google": "waiting" if settings.gbrain_enabled else "disabled", "email": "configured" if notifier else "unconfigured"}
 
     def now(self, demo=False) -> datetime:
         now = datetime.now(timezone.utc)
@@ -68,8 +76,7 @@ class Runtime:
                     if not latest or not latest["active"] or latest["revision"] != expected_revision:
                         raise StaleMemoryError("memory changed while its rewrite was being prepared")
             check_revision()
-            revision = digest(markdown)
-            if current and current["active"] and current["revision"] == revision and not current.get("error"):
+            if current and current["active"] and current["markdown"] == markdown and not current.get("error"):
                 return current
             try:
                 fields = parse_memory(markdown)
@@ -81,10 +88,19 @@ class Runtime:
                 self.store.trace("error", "Recipe rejected; old behavior stopped", {"memory_id": memory_id, "error": str(exc)})
                 raise
             check_revision()
+            # GBrain canonicalizes front matter and adds provenance metadata.
+            # Equivalent serialization must not invalidate scheduled behavior.
+            revision = digest(json.dumps({
+                "title": fields["title"], "body": fields["body"],
+                "sources": sorted(fields["sources"]),
+                "compiled": compiled.model_dump(mode="json"),
+            }, sort_keys=True))
+            if current and current["active"] and current["revision"] == revision and not current.get("error"):
+                return current
             if write_brain and self.brain:
                 await self._put_brain(memory_id, markdown)
             check_revision()
-            record = {"id": memory_id, **fields, "markdown": markdown, "compiled": compiled.model_dump(mode="json"), "revision": revision, "active": True}
+            record = {"id": memory_id, **fields, "markdown": markdown, "compiled": compiled.model_dump(mode="json"), "revision": revision, "active": not self.store.setting(f"manual_stop:{memory_id}", False)}
             self.store.save_memory(record, preserve_event_id=preserve_event_id)
             mirror = self.settings.data_dir / f"{memory_id}.md"
             mirror.parent.mkdir(parents=True, exist_ok=True)
@@ -96,14 +112,28 @@ class Runtime:
             return record
 
     async def _put_brain(self, memory_id: str, markdown: str) -> None:
-        expected = None
-        try:
-            page = await self.brain.get_page(memory_id, source="default")
-            expected = page.get("revision")
-        except Exception:
-            # Create-only writes still reject conflicts and outages; no force writes.
-            pass
-        await self.brain.put_page(memory_id, markdown, source="default", expected_revision=expected, request_id=str(uuid.uuid4()))
+        intent_key = f"gbrain_write:{memory_id}:{digest(markdown)}"
+        intent = self.store.setting(intent_key)
+        if intent is None:
+            intent = {
+                "request_id": str(uuid.uuid4()),
+                # This is the revision observed when we read/wrote the memory,
+                # not a freshly fetched revision that could bless a stale edit.
+                "expected_revision": self.store.setting(f"gbrain_revision:{memory_id}"),
+            }
+            self.store.set_setting(intent_key, intent)
+        receipt = await self.brain.put_page(
+            memory_id, markdown, source="default",
+            expected_revision=intent["expected_revision"],
+            request_id=intent["request_id"],
+        )
+        if receipt.get("state") != "committed" or not receipt.get("revision"):
+            raise RuntimeError(
+                f"GBrain write is {receipt.get('state', 'unconfirmed')} "
+                f"(request {intent['request_id']})"
+            )
+        self.store.set_setting(f"gbrain_revision:{memory_id}", receipt["revision"])
+        self.store.set_setting(intent_key, None)
         self.status["gbrain"] = "connected"
 
     async def submit(self, source: str, payload: dict, *, event_id: str | None = None) -> str:
@@ -141,6 +171,11 @@ class Runtime:
                 return
             payload = dict(event["payload"])
             self.store.set_event_status(event_id, "processing")
+            message_id = payload.get("message_id") or (payload.get("frontmatter") or {}).get("message_id")
+            if source == "email" and (payload.get("memento_notification") or self.store.sent_delivery(message_id)):
+                self.store.set_event_status(event_id, "done")
+                self.store.trace("suppressed", "Ignored Memento's outgoing notification", {"event_id": event_id})
+                return
             saved_writes = self.store.setting(f"writer_plan:{digest(event_id)}")
             if saved_writes is not None:
                 # Recover the exact remaining writer work instead of classifying
@@ -151,7 +186,7 @@ class Runtime:
                 return
             if source == "email" and "text" in payload:
                 payload["text"] = trim_email(payload["text"])
-            state = {"event": {"id": event_id, "source": source, **payload}, "today": self.now(payload.get("demo", False)).astimezone(ZoneInfo(self.settings.timezone)).isoformat(), "timezone": self.settings.timezone}
+            state = annotate_calendar({"event": {"id": event_id, "source": source, **payload}, "today": self.now(payload.get("demo", False)).astimezone(ZoneInfo(self.settings.timezone)).isoformat(), "timezone": self.settings.timezone})
             triggers: dict[str, tuple[dict, EventTrigger]] = {}
             questions = {}
             for memory, recipe in self.active_memories():
@@ -164,6 +199,14 @@ class Runtime:
                     key = f"t_{digest(memory['id'] + str(index))}"
                     triggers[key] = (memory, trigger)
                     questions[key] = trigger.question
+            # Conditions compare the incoming event with stored facts. Include
+            # those facts for email/calendar updates as well as chat references
+            # such as "my flight"; the condition alone is not the memory.
+            relevant = {memory["id"]: memory for memory, _ in triggers.values()}
+            state["relevant_memories"] = [
+                {"id": m["id"], "title": m["title"], "body": m["body"][:1200]}
+                for m in list(relevant.values())[:50]
+            ]
             questions["remember"] = Question(**memory_gate(source))
             if not self.evaluator:
                 self.store.set_event_status(event_id, "failed", "Jev is not configured")
@@ -252,11 +295,12 @@ class Runtime:
         try:
             self.store.trace("writing", "Updating a memory" if existing else "Writing a memory", {"event_id": event.get("id")})
             event = {**event, "today": event.get("today") or self.now(event.get("demo", False)).astimezone(ZoneInfo(self.settings.timezone)).isoformat(), "timezone": self.settings.timezone}
-            draft = await self.writer.write(
-                event, existing_memory=existing,
-                now=self.now(event.get("demo", False)),
-                timezone_name=self.settings.timezone,
-            )
+            async with self.writer_slots:
+                draft = await self.writer.write(
+                    event, existing_memory=existing,
+                    now=self.now(event.get("demo", False)),
+                    timezone_name=self.settings.timezone,
+                )
             if existing:
                 current = self.store.memory(existing["id"])
                 if not current or not current["active"] or current["revision"] != existing["revision"]:
@@ -292,6 +336,13 @@ class Runtime:
                 if reminder.at <= now:
                     key = digest(f"reminder:{memory['id']}:{reminder.at.isoformat()}:{reminder.text}")
                     if self.store.enqueue(notification_id=key, memory=memory, kind="reminder", text=reminder.text):
+                        cutoff = self.store.setting("email_enabled_since")
+                        if (cutoff and "/demo/" in memory["id"]
+                                and memory["updated_at"] < cutoff
+                                and reminder.at <= datetime.fromisoformat(cutoff)):
+                            # Old demo deadlines may not yet have been ticked;
+                            # enabling email must not turn them into real mail.
+                            self.store.notification_status(key, "local")
                         self.store.trace("fired", f"Reminder: {memory['title']}", {"at": reminder.at.isoformat(), "demo": "/demo/" in memory["id"]})
         await self.deliver()
 
@@ -300,22 +351,69 @@ class Runtime:
             await self._deliver_pending()
 
     async def _deliver_pending(self) -> None:
-        for notification in reversed(self.store.notifications(pending_only=True)):
+        cutoff = self.store.enable_email_delivery() if self.notifier else None
+        send_retry_at = self.store.setting("email_send_retry_at")
+        if send_retry_at and send_retry_at > stamp():
+            return
+        for notification in self.store.ready_notifications():
+            if notification["kind"] == "surface" or (cutoff and notification["created_at"] < cutoff):
+                self.store.notification_status(notification["id"], "local")
+                continue
             memory = self.store.memory(notification["memory_id"])
             if not memory or not memory["active"] or memory["revision"] != notification["memory_revision"]:
                 self.store.notification_status(notification["id"], "canceled")
                 continue
-            if not self.telegram or not self.telegram.chat_id:
-                # Remains visible locally; send to the paired owner after pairing.
+            if not self.notifier:
                 continue
-            try:
-                message_id = await self.telegram.send(notification["text"])
-                self.store.notification_status(notification["id"], "delivered", telegram_id=message_id)
-                self.status["telegram"] = "connected"
-            except Exception as exc:
-                self.status["telegram"] = "error"
-                self.store.notification_status(notification["id"], "pending", error=self._safe_error(exc))
+            if not self.notifier.ready and not await self._connect_notifier():
                 break
+            try:
+                demo = "/demo/" in memory["id"]
+                subject = f"{'DEMO · ' if demo else ''}Memento · {memory['title']}"
+                text = f"DEMO — synthetic example.\n\n{notification['text']}" if demo else notification["text"]
+                prepared = self.store.prepare_delivery(notification["id"], subject=subject, text=text)
+                self.store.delivery_attempt(notification["id"])
+                delivery_id = await self.notifier.send(
+                    prepared["delivery_text"], subject=prepared["delivery_subject"],
+                    notification_id=notification["id"],
+                )
+                self.store.notification_status(notification["id"], "delivered", delivery_id=delivery_id)
+                self.store.set_setting("email_send_retry_at", None)
+                self.status["email"] = "connected"
+            except Exception as exc:
+                self.status["email"] = "error" if self.notifier.ready else "needs_consent"
+                self.store.notification_status(notification["id"], "pending", error=self._safe_error(exc))
+                retry = self.store.notification(notification["id"])
+                self.store.set_setting("email_send_retry_at", retry["retry_at"])
+                self.store.trace("retry", "Email delivery will retry", {
+                    "notification_id": notification["id"], "error": self._safe_error(exc),
+                    "attempt": retry["attempts"], "retry_at": retry["retry_at"],
+                })
+                break
+
+    async def _connect_notifier(self) -> bool:
+        if not self.notifier:
+            return False
+        if self.notifier.ready:
+            self.status["email"] = "connected"
+            return True
+        retry_at = self.store.setting("email_connect_retry_at")
+        if retry_at and retry_at > stamp():
+            self.status["email"] = "needs_consent"
+            return False
+        try:
+            await self.notifier.connect()
+            if self.notifier.ready:
+                self.store.set_setting("email_connect_retry_at", None)
+                self.status["email"] = "connected"
+                return True
+            error = "Email sending permission has not been granted"
+        except Exception as exc:
+            error = self._safe_error(exc)
+        self.status["email"] = "needs_consent"
+        self.store.set_setting("email_connect_retry_at", (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat())
+        self.store.trace("email", "Email sending needs consent", {"error": error})
+        return False
 
     async def sync_brain(self) -> None:
         if not self.brain:
@@ -323,41 +421,60 @@ class Runtime:
         try:
             if self.settings.gbrain_enabled:
                 await self.brain.sync(source="google")
+                if self.google_intake:
+                    try:
+                        await self.google_intake.poll()
+                    except Exception as exc:
+                        self.store.trace("error", "Automated Gmail intake failed", {"error": self._safe_error(exc)})
                 self.status["google"] = "connected"
-            cursor = self.store.setting("gbrain_cursor")
-            pages = await self.brain.list_pages(updated_after=cursor)
-            newest = cursor
+            # A process upgraded from the first prototype may have local
+            # memories without their observed GBrain revision. Re-read those
+            # pages before allowing any rewrite to use a CAS precondition.
+            missing_revisions = {
+                m["id"] for m in self.store.memories()
+                if not self.store.setting(f"gbrain_revision:{m['id']}")
+            }
+            # GBrain soft-delete/restore change deleted_at without advancing
+            # updated_at. Reconcile the small metadata inventory so neither
+            # transition is hidden by a timestamp cursor; fetch bodies only
+            # when the content/lifecycle fingerprint changes.
+            pages = await self.brain.list_pages(include_deleted=True)
+            newest = self.store.setting("gbrain_cursor")
             for row in pages:
                 slug, source = row["slug"], row.get("source_id", "default")
-                if source == "google" and not self.settings.gbrain_enabled:
+                google_event = source == "google" or (source == "default" and slug.startswith("events/gmail/"))
+                if google_event and not self.settings.gbrain_enabled:
                     continue
                 updated = row.get("updated_at")
-                if updated and (newest is None or updated > newest):
-                    newest = updated
+                changed = max(filter(None, (updated, row.get("deleted_at"))), default=None)
+                if changed and (newest is None or changed > newest):
+                    newest = changed
                 seen_key = f"page:{source}:{slug}"
-                if self.store.setting(seen_key) == updated:
+                fingerprint = {"updated_at": updated, "deleted_at": row.get("deleted_at")}
+                if self.store.setting(seen_key) == fingerprint and slug not in missing_revisions:
                     continue
                 if row.get("deleted_at"):
                     if slug.startswith("memories/") and source == "default":
                         self.store.deactivate(slug)
-                    self.store.set_setting(seen_key, updated)
+                    self.store.set_setting(seen_key, fingerprint)
                     continue
                 page = await self.brain.get_page(slug, source=source)
                 content = page.get("content") or page.get("body") or ""
                 if slug.startswith("memories/") and source == "default":
                     try:
                         await self.register_markdown(slug, content)
+                        self.store.set_setting(f"gbrain_revision:{slug}", page.get("revision"))
                     except Exception:
                         # Invalid memory stops its old behavior; other pages
                         # must still progress past this page in the same sync.
-                        self.store.set_setting(seen_key, updated)
+                        self.store.set_setting(seen_key, fingerprint)
                         continue
-                elif source == "google":
-                    kind = "calendar" if slug.startswith("calendar/") else "email"
-                    await self.submit(kind, {"text": content, "title": page.get("title", row.get("title", "")), "slug": slug, "source_id": source, "page_revision": page.get("revision"), "frontmatter": page.get("frontmatter", {})}, event_id=f"gbrain:{source}:{slug}:{page.get('revision', updated)}")
-                self.store.set_setting(seen_key, updated)
+                elif google_event:
+                    envelope = normalize_gbrain_event({**row, **page})
+                    await self.submit(envelope["source"], envelope["payload"], event_id=envelope["event_id"])
+                self.store.set_setting(seen_key, fingerprint)
             if newest:
-                # Inclusive overlap avoids losing pages that share a timestamp.
+                # Informational watermark; lifecycle reconciliation is unfiltered.
                 overlap = datetime.fromisoformat(newest.replace("Z", "+00:00")) - timedelta(milliseconds=1)
                 self.store.set_setting("gbrain_cursor", overlap.isoformat())
             self.status["gbrain"] = "connected"
@@ -367,7 +484,7 @@ class Runtime:
 
     def _safe_error(self, exc: Exception) -> str:
         text = str(exc)
-        for secret in (self.settings.jev_api_key, self.settings.river_api_key, self.settings.telegram_token):
+        for secret in (self.settings.jev_api_key, self.settings.river_api_key):
             if secret:
                 text = text.replace(secret, "[redacted]")
         return text[:2000]
@@ -388,28 +505,17 @@ class Runtime:
             await self.sync_brain()
             await asyncio.sleep(self.settings.sync_seconds)
 
-    async def _telegram_loop(self):
-        while not self.stopping:
-            try:
-                if not self.telegram.username:
-                    await self.telegram.connect()
-                await self.telegram.poll()
-                self.status["telegram"] = "connected" if self.telegram.chat_id else "pairing"
-            except Exception as exc:
-                self.status["telegram"] = "error"
-                self.store.trace("error", "Telegram connection failed", {"error": self._safe_error(exc)})
-                await asyncio.sleep(5)
-
     async def start(self):
         if self.worker_tasks:
             return
         self.stopping = False
+        if self.notifier:
+            self.store.enable_email_delivery()
+            await self._connect_notifier()
         self.worker_tasks.append(asyncio.create_task(self._worker()))
         self.worker_tasks.append(asyncio.create_task(self._clock_loop()))
         if self.brain:
             self.worker_tasks.append(asyncio.create_task(self._sync_loop()))
-        if self.telegram:
-            self.worker_tasks.append(asyncio.create_task(self._telegram_loop()))
 
     async def stop(self):
         self.stopping = True
@@ -418,8 +524,8 @@ class Runtime:
         await asyncio.gather(*self.worker_tasks, return_exceptions=True)
         self.worker_tasks.clear()
         await self.wait_idle()
-        if self.telegram:
-            await self.telegram.close()
+        if self.notifier:
+            await self.notifier.close()
         if self.writer and hasattr(self.writer, "close"):
             await self.writer.close()
 
@@ -434,5 +540,5 @@ class Runtime:
             "memories": self.store.memories(), "events": self.store.events(limit=30),
             "notifications": self.store.notifications(), "traces": traces,
             "counts": {"memories": len(active), "triggers": sum(len(r.triggers) + len(r.reminders) for _, r in active), "last_jev_ms": last_jev["detail"]["result"]["elapsed_ms"] if last_jev else None},
-            "telegram": {"username": self.telegram.username, "paired": bool(self.telegram.chat_id), "pair_code": self.telegram.pair_code if not self.telegram.chat_id else None} if self.telegram else None,
+            "email": {"recipient": self.notifier.recipient, "ready": self.notifier.ready, "enabled_since": self.store.setting("email_enabled_since")} if self.notifier else None,
         }

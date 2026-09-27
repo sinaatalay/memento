@@ -52,9 +52,12 @@ separate unfinished user commitment in the body. Do not invent completion of a
 follow-up message just because its blocker cleared. A canceled flight has no
 departure/arrival reminders and no remaining flight watch unless explicitly
 requested. The body should record the cancellation and retain source history.
+A request to cancel an external booking is not proof it was canceled: record
+the user's intent without claiming a refund, external cancellation, or message
+send happened. Stop tracking when the user explicitly asks to stop reminders.
 
 Return MemoryDraft with title, body, recipe, sources (exact provided source IDs).
-The recipe is a real Python module, no fences. Lines <=78 characters, no tabs.
+The recipe is a real Python module, no fences or tabs. Prefer readable lines.
 An empty recipe is exactly the empty string, not a placeholder, comment, or a
 new unrelated watch. On cancellation with no remaining explicit obligation,
 return recipe="". Never invent rebooking/refund watches or arbitrary expiry.
@@ -73,29 +76,49 @@ remind(when, text) -> one notification at a specific instant.
 expires(when) -> deactivate the entire memory recipe at that instant.
 on(source, when=question, do=action, threshold=0.8, **filters) -> event trigger.
 do may also be a list of actions. Sources are email, calendar, chat.
-noul("Does this event change the UA123 flight on Sep 28?",
-     true="An explicit change/cancellation to that flight",
-     false="Unrelated or unchanged information") -> yes/no semantic question.
+noul("Does this event report a changed departure time for UA123?",
+     true="The message explicitly states a different departure time",
+     false="Departure is unchanged or the event is unrelated") -> yes/no.
 choice("What kind of update is this?", cancel="Canceled", move="Rescheduled",
        other="Neither") -> category. on(choice(...)) requires match="cancel".
 score("How urgent is this?", ["Routine", "Soon", "Immediate"]) -> ordered score.
 alert("text") -> notify user; surface(this) -> show this memory in chat.
 rewrite(this) -> regenerate this memory using the new event.
 Use on(email,...) for email changes, on(calendar,...) for calendar changes,
-on(chat,...) for directly related user questions or plans. Questions must be
+on(chat,...) with do=surface(this) for directly related user questions or plans.
+Do not replace surface(this) with a generic alert or relative-time reminder.
+Questions must be
 specific to this memory and ask about the event, not assume unstated facts.
+For changing plans/commitments, ALSO register a separate on(chat) rewrite trigger
+for an explicit user correction, cancellation, completion or stop-tracking
+instruction about this memory. A casual related question must only surface;
+it must not rewrite. Do not treat hypothetical cancellations as actual updates.
+Ask ONE narrow judgment per trigger; separate cancellation status, cancellation
+request, stop-reminders request and corrected dates into different questions.
+Every noul MUST provide explicit true= and false= descriptions; default generic
+criteria will be rejected. Give concrete boundary cases. Never combine a
+departure change with cancellation in one question. A booking can remain
+confirmed while departure changes; unchanged arrival is not unchanged departure.
+For updates, ask whether the incoming message explicitly reports the change.
+Include this memory's identifier/entity so another person's plan cannot match.
+Prefer stable booking/confirmation IDs when supplied, along with the flight
+number. Do not make a human-formatted date string the sole identity: the event
+may express the same date in ISO format. Unknown IDs must never be invented.
+The runtime may supply relevant_memories to resolve an unambiguous "my flight";
+do not turn a specific question into a generic match for every flight.
 Do not use Jev questions to calculate dates or time differences. Do time math in
 the recipe. The input calendar_context supplies date/weekday relationships.
 Include BOTH weekday and date in date-based semantic questions, using this
 computed index. For a flight, ask directly whether the user is proposing an
-activity before their flight on that weekday, date and departure time. Avoid
-an unnecessarily broad window such as before noon for an 08:05 flight.
+activity before their upcoming trip on that weekday and date. Do not put a clock
+comparison in the question: Jev is unreliable at comparing 7am with an 08:05
+departure. Keep exact departure time in the body and deterministic reminder.
 Only schedule reminders in the future relative to now. Expiry must follow any
 reminders. For a flight departure, remind 24h and/or 2h ahead only when still
 future, and expire a day after arrival or departure. Calendar events should have
 an appropriate advance reminder. No recipe is needed for already-ended events.
 
-Example 1: confirmed flight, now 2026-09-27 12:00 America/Los_Angeles:
+Example 1: UA123 booking DEMO42, now 2026-09-27 12:00 America/Los_Angeles:
 from memento import (
     at, hours, days, remind, on, expires, email, chat,
     noul, alert, surface, rewrite, this,
@@ -104,24 +127,82 @@ departure = at("2026-09-28 08:05", tz="America/Los_Angeles")
 remind(departure - hours(2), "UA123 departs SFO at 08:05 today.")
 on(
     email,
-    when=noul("Does this event change or cancel UA123 on Sep 28?"),
-    do=[alert("Your UA123 itinerary changed."), rewrite(this)],
+    when=noul(
+        "Does the incoming event report a changed departure time "
+        "for flight UA123, booking DEMO42?",
+        true="Explicit new departure time instead of the old time. "
+             "The booking can remain confirmed while departure changes.",
+        false="Departure unchanged, unrelated flight, or no change stated.",
+    ),
+    do=[alert("Your UA123 departure time changed."), rewrite(this)],
+)
+on(
+    email,
+    when=noul(
+        "Does the incoming event say UA123, booking DEMO42, was canceled?",
+        true="An explicit cancellation of this flight or booking.",
+        false="The booking remains confirmed, only its time changes, "
+              "or cancellation is hypothetical or unrelated.",
+    ),
+    do=[alert("Your UA123 flight was canceled."), rewrite(this)],
 )
 on(
     chat,
     when=noul(
-        "Is the user proposing an activity before their flight "
-        "on Monday Sep 28 departing at 08:05?"
+        "Is the user proposing an activity before their upcoming trip "
+        "on Monday September 28?",
+        true="The user proposes an activity before their upcoming trip.",
+        false="Unrelated plans, plans after the trip, or no proposed activity.",
     ),
     do=surface(this),
+)
+on(
+    chat,
+    when=noul(
+        "Does the user say flight UA123 is canceled?",
+        true="The user states the flight was actually canceled.",
+        false="A hypothetical or request to cancel, without confirmation.",
+    ),
+    do=rewrite(this),
+)
+on(
+    chat,
+    when=noul(
+        "Does the user ask to stop reminders about flight UA123?",
+        true="An explicit instruction to stop tracking or reminding.",
+        false="A related question, plan or update without a stop instruction.",
+    ),
+    do=rewrite(this),
+)
+on(
+    chat,
+    when=noul(
+        "Does the user request cancellation of their flight UA123?",
+        true="An explicit request to cancel the booking.",
+        false="A hypothetical, unrelated question, or already-canceled status.",
+    ),
+    do=rewrite(this),
+)
+on(
+    chat,
+    when=noul(
+        "Does the user give a corrected date or time for UA123?",
+        true="The user states a new actual departure date or time.",
+        false="A question, proposed alternative, or unchanged schedule.",
+    ),
+    do=rewrite(this),
 )
 expires(departure + days(1))
 
 Example 2: customer waits for SSO:
-from memento import on, email, noul, alert, rewrite, this
+from memento import on, email, chat, noul, alert, rewrite, this
 on(
     email,
-    when=noul("Does this event confirm our SSO feature has shipped?"),
+    when=noul(
+        "Does this event confirm our SSO feature has shipped?",
+        true="A release announcement states SSO is now available.",
+        false="A plan, discussion or request; SSO has not shipped yet.",
+    ),
     do=[
         alert("SSO shipped. Follow up with Maya at Acme about the pilot."),
         rewrite(this),
@@ -129,7 +210,29 @@ on(
 )
 on(
     email,
-    when=noul("Does this event say Acme canceled the pilot with Maya?"),
+    when=noul(
+        "Does this event say Acme canceled the pilot with Maya?",
+        true="Acme explicitly canceled this pilot.",
+        false="An unrelated customer, hypothetical cancellation or active pilot.",
+    ),
+    do=rewrite(this),
+)
+on(
+    chat,
+    when=noul(
+        "Does the user say they completed their follow-up with Maya at Acme?",
+        true="The user affirms that they already followed up with Maya.",
+        false="They plan to do it, ask about it, or discuss another person.",
+    ),
+    do=rewrite(this),
+)
+on(
+    chat,
+    when=noul(
+        "Does the user ask to stop tracking their Acme pilot promise?",
+        true="An explicit stop-tracking instruction about this promise.",
+        false="A related question or plan without a stop instruction.",
+    ),
     do=rewrite(this),
 )
 
@@ -173,6 +276,15 @@ class MemoryWriter:
 
             try:
                 recipe = await asyncio.to_thread(collect, draft.recipe)
+                for trigger in recipe.triggers:
+                    if trigger.question.kind == "noul" and any(
+                        description in {"The condition is true.", "The condition is false."}
+                        for description in trigger.question.options.values()
+                    ):
+                        raise ValueError(
+                            "Every noul needs explicit true= and false= criteria "
+                            "with concrete positive and negative boundary cases."
+                        )
                 if any(reminder.at <= ctx.deps.now for reminder in recipe.reminders):
                     raise ValueError("Every new reminder must be later than now.")
                 if ctx.deps.sources and not draft.sources:

@@ -55,3 +55,17 @@ async def test_invalid_source_is_rejected(runtime):
         response = await client.post("/api/events", json={"source": "contacts", "text": "Should not enter queue"})
     assert response.status_code == 400
     assert runtime.store.events() == []
+
+
+async def test_manual_stop_survives_memory_reimport_until_explicit_resume(runtime):
+    from memento.memory import render_memory
+    memory_id = "memories/demo/stopped"
+    markdown = render_memory("A watched memory", "My plan", "", [])
+    await runtime.register_markdown(memory_id, markdown)
+    app = create_app(runtime, run_workers=False)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8877") as client:
+        assert (await client.post(f"/api/memories/{memory_id}/stop")).status_code == 200
+        await runtime.register_markdown(memory_id, markdown)
+        assert runtime.store.memory(memory_id)["active"] is False
+        assert (await client.post(f"/api/memories/{memory_id}/resume")).status_code == 200
+        assert runtime.store.memory(memory_id)["active"] is True

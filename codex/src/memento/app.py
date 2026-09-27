@@ -82,9 +82,19 @@ def create_app(runtime: Runtime, *, run_workers: bool = True) -> FastAPI:
     async def stop_memory(memory_id: str):
         if not runtime.store.memory(memory_id):
             raise HTTPException(404, "Memory not found")
+        runtime.store.set_setting(f"manual_stop:{memory_id}", True)
         runtime.store.deactivate(memory_id)
         runtime.store.trace("stopped", "Stopped watching", {"memory_id": memory_id})
         return {"stopped": memory_id}
+
+    @app.post("/api/memories/{memory_id:path}/resume")
+    async def resume_memory(memory_id: str):
+        memory = runtime.store.memory(memory_id)
+        if not memory:
+            raise HTTPException(404, "Memory not found")
+        runtime.store.set_setting(f"manual_stop:{memory_id}", False)
+        await runtime.register_markdown(memory_id, memory["markdown"])
+        return {"resumed": memory_id}
 
     @app.post("/api/events/{event_id:path}/retry")
     async def retry(event_id: str):

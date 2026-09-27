@@ -179,7 +179,6 @@ def test_explicit_offset_resolves_dst_ambiguity() -> None:
 @pytest.mark.parametrize(
     ("source", "error"),
     [
-        ("# " + "x" * 77, "78 characters"),
         ("\t# no tabs", "tabs"),
         ("#" * 16385, "16384 bytes"),
         ("from memento import at\nat('nonsense')", "date and time"),
@@ -211,6 +210,21 @@ def test_actionable_validation_errors(source: str, error: str) -> None:
 def test_timeout_kills_child_and_becomes_recipe_error() -> None:
     with pytest.raises(RecipeError, match="timed out"):
         collect("", timeout=0.000001)
+
+
+def test_long_source_lines_preserve_recipe_meaning() -> None:
+    # The pinned GBrain version round-trips long imports, comments, and string
+    # literals intact. Line length is a writing preference, not a validity rule.
+    text = "Your flight leaves tomorrow. " + "Check the updated itinerary. " * 8
+    source = (
+        "from memento import at, hours, minutes, days, remind, on, expires, "
+        "email, calendar, chat, noul, choice, score, alert, surface, rewrite, this\n"
+        + "# " + "A long explanatory recipe comment. " * 8 + "\n"
+        + f"remind(at('2026-09-28T08:00Z'), {text!r})\n"
+    )
+    assert all(len(line) > 78 for line in source.splitlines())
+    recipe = collect(source)
+    assert recipe.reminders[0].text == text
 
 
 def test_registration_does_not_leak_between_memories() -> None:

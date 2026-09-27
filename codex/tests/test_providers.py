@@ -8,7 +8,16 @@ from pydantic_ai.models.decision import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from memento.providers import JevEvaluator, to_jev_question
+from memento.providers import JevEvaluator, annotate_calendar, to_jev_question
+
+
+def test_calendar_context_uses_users_timezone_at_midnight():
+    state = {"today": "2026-09-28T01:00:00+00:00",
+             "timezone": "America/Los_Angeles", "event": {"text": "Monday"}}
+    annotated = annotate_calendar(state)
+    assert annotated["calendar_context"]["today"] == "Sunday September 27, 2026"
+    assert annotated["calendar_context"]["tomorrow"] == "Monday September 28, 2026"
+    assert "calendar_context" not in state  # preserve the event input
 
 
 def test_question_mapping_preserves_criteria():
@@ -94,6 +103,44 @@ async def test_river_transport_uses_native_sdk_and_preserves_error():
 
 
 @pytest.mark.asyncio
+async def test_river_coalesces_prompted_schema_into_leading_system_message():
+    from pydantic import BaseModel
+    from pydantic_ai import Agent, PromptedOutput
+    from memento.providers import RiverConnection
+
+    class Greeting(BaseModel):
+        greeting: str
+
+    class NativeClient:
+        def chat_complete(self, messages, **kwargs):
+            assert messages[0]["role"] == "system"
+            assert sum(m["role"] == "system" for m in messages) == 1
+            assert "greeting" in messages[0]["content"]
+            return SimpleNamespace(status_code=200, response_json=json.dumps({
+                "id": "fixture", "object": "chat.completion", "created": 1,
+                "model": kwargs["base_model"],
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {
+                    "role": "assistant", "content": '{"greeting":"hello"}',
+                }}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                          "total_tokens": 15},
+            }))
+
+        def close(self):
+            pass
+
+    connection = RiverConnection(client=NativeClient())
+    try:
+        result = await Agent(
+            connection.model, instructions="Be brief.",
+            output_type=PromptedOutput(Greeting),
+        ).run("Say hello")
+        assert result.output.greeting == "hello"
+    finally:
+        await connection.close()
+
+
+@pytest.mark.asyncio
 async def test_writer_retries_invalid_recipe_before_returning():
     from pydantic_ai.messages import ModelResponse, TextPart, RetryPromptPart
     from pydantic_ai.models.function import FunctionModel
@@ -121,8 +168,46 @@ async def test_writer_retries_invalid_recipe_before_returning():
 
 
 @pytest.mark.asyncio
+async def test_writer_repairs_generic_noul_criteria_before_accepting_a_watch():
+    from pydantic_ai.messages import ModelResponse, TextPart, RetryPromptPart
+    from pydantic_ai.models.function import FunctionModel
+    from memento.collector import collect
+    from memento.writer import MemoryWriter
+
+    calls = []
+
+    async def reply(messages, info):
+        calls.append(messages)
+        question = (
+            'noul("Did UA123 departure change?")'
+            if len(calls) == 1 else
+            'noul("Did UA123 departure change?", '
+            'true="A new departure time is explicitly stated", '
+            'false="Only confirmation or unchanged departure")'
+        )
+        draft = {
+            "title": "UA123", "body": "UA123 departs tomorrow.",
+            "recipe": (
+                "from memento import on, email, noul, alert\n"
+                f"on(email, when={question}, do=alert('Departure changed'))\n"
+            ),
+            "sources": ["email/1"],
+        }
+        return ModelResponse(parts=[TextPart(json.dumps(draft))])
+
+    writer = MemoryWriter(model=FunctionModel(reply))
+    draft = await writer.write({"id": "email/1", "text": "UA123 tomorrow"})
+    assert len(calls) == 2
+    assert "explicitly" in collect(draft.recipe).triggers[0].question.options["true"]
+    retries = [p for message in calls[-1] for p in message.parts
+               if isinstance(p, RetryPromptPart)]
+    assert retries and "explicit true=" in str(retries[0].content)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("bad_draft", [
     {"recipe": "", "sources": ["invented/source"]},
+    {"recipe": "", "sources": []},
     {"recipe": (
         "from memento import at, remind\n"
         "remind(at('2026-09-26T08:00:00-07:00'), 'Too late')\n"

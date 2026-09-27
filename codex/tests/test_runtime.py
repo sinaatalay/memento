@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -72,22 +73,25 @@ class FakeWriter:
         self.closed = True
 
 
-class FakeTelegram:
-    chat_id = "owner"
-    username = "memento_fixture"
+class FakeEmail:
+    ready = True
+    recipient = "owner@example.test"
 
     def __init__(self):
         self.sent = []
+        self.calls = []
         self.closed = False
 
-    async def send(self, text):
+    async def send(self, text, *, subject="Memento", notification_id=None):
+        self.calls.append({"text": text, "subject": subject, "notification_id": notification_id})
         # Yield to expose two concurrent deliveries reading the same pending row.
         await asyncio.sleep(0.005)
         self.sent.append(text)
         return str(len(self.sent))
 
-    async def poll(self):
-        await asyncio.sleep(10)
+    async def connect(self):
+        self.ready = True
+        return {"ready": True}
 
     async def close(self):
         self.closed = True
@@ -114,6 +118,7 @@ class FakeBrain:
 def runtime(tmp_path):
     settings = Settings(data_dir=tmp_path)
     store = Store(tmp_path / "ledger.sqlite3")
+    store.set_setting("email_enabled_since", "1970-01-01T00:00:00+00:00")
     runtime = Runtime(settings, store)
     runtime.now = lambda demo=False: NOW + timedelta(
         seconds=store.setting("demo_clock_offset", 0) if demo else 0
@@ -137,21 +142,21 @@ async def process(runtime, *, event_id="fixture:1", demo=False, text="New depart
 async def test_reminder_is_not_repeated_after_restart(tmp_path):
     path = tmp_path / "ledger.sqlite3"
     settings = Settings(data_dir=tmp_path)
-    telegram = FakeTelegram()
+    notifier = FakeEmail()
     first_store = Store(path)
-    first = Runtime(settings, first_store, telegram=telegram)
+    first = Runtime(settings, first_store, notifier=notifier)
     first.now = lambda demo=False: NOW
     await register(first, recipe=REMINDER)
     await first.tick()
-    assert len(telegram.sent) == 1
+    assert len(notifier.sent) == 1
     first_store.close()
 
     second_store = Store(path)
-    second = Runtime(settings, second_store, telegram=telegram)
+    second = Runtime(settings, second_store, notifier=notifier)
     second.now = lambda demo=False: NOW
     try:
         await second.tick()
-        assert len(telegram.sent) == 1
+        assert len(notifier.sent) == 1
         assert second_store.notifications()[0]["status"] == "delivered"
     finally:
         second_store.close()
@@ -159,10 +164,226 @@ async def test_reminder_is_not_repeated_after_restart(tmp_path):
 
 @pytest.mark.asyncio
 async def test_concurrent_delivery_sends_once(runtime):
-    runtime.telegram = FakeTelegram()
+    runtime.notifier = FakeEmail()
     await register(runtime, recipe=REMINDER)
     await asyncio.gather(runtime.tick(), runtime.tick(), runtime.deliver())
-    assert runtime.telegram.sent == ["Leave for the airport."]
+    assert runtime.notifier.sent == ["Leave for the airport."]
+    delivered = runtime.store.notifications()[0]
+    assert delivered["delivery_id"] == "1"
+    assert runtime.notifier.calls[0]["notification_id"] == delivered["id"]
+    assert runtime.notifier.calls[0]["subject"] == "Memento · Flight"
+
+
+@pytest.mark.asyncio
+async def test_email_enablement_keeps_old_backlog_local_and_sends_new_work(tmp_path):
+    store = Store(tmp_path / "ledger.sqlite3")
+    settings = Settings(data_dir=tmp_path)
+    before = Runtime(settings, store)
+    before.now = lambda demo=False: NOW
+    await register(before, recipe=REMINDER, memory_id="memories/demo/old")
+    await before.tick()
+    assert store.notifications()[0]["status"] == "pending"
+    notifier = FakeEmail()
+    after = Runtime(settings, store, notifier=notifier)
+    after.now = lambda demo=False: NOW
+    try:
+        cutoff = store.setting("email_enabled_since")
+        await after.tick()
+        assert notifier.sent == []
+        assert store.notifications()[0]["status"] == "local"
+        await register(after, recipe=REMINDER, memory_id="memories/new")
+        await after.tick()
+        assert len(notifier.sent) == 1
+        restarted = Runtime(settings, store, notifier=notifier)
+        assert store.setting("email_enabled_since") == cutoff
+        await restarted.deliver()
+        assert len(notifier.sent) == 1
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_email_enablement_does_not_turn_old_unprocessed_events_into_mail(tmp_path):
+    store = Store(tmp_path / "ledger.sqlite3")
+    settings = Settings(data_dir=tmp_path)
+    before = Runtime(settings, store)
+    await register(before)
+    await before.submit("email", {"text": "Old update"}, event_id="old-event")
+    after = Runtime(settings, store, notifier=FakeEmail(), evaluator=FakeEvaluator())
+    try:
+        await after.process_event(store.event("old-event"))
+        assert store.notifications()[0]["status"] == "local"
+        assert after.notifier.sent == []
+        await after.submit("email", {"text": "New update"}, event_id="new-event")
+        await after.process_event(store.event("new-event"))
+        assert after.notifier.sent == ["Flight changed."]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_surface_remains_local_while_alert_is_emailed(runtime):
+    runtime.notifier = FakeEmail()
+    runtime.evaluator = FakeEvaluator()
+    await register(runtime, recipe='''\
+from memento import on, chat, noul, surface, alert, this
+on(chat, when=noul("Flight relevant?"),
+   do=[surface(this), alert("Flight plans need attention.")])
+''')
+    event_id = await runtime.submit("chat", {"text": "What about my flight?"})
+    await runtime.process_event(runtime.store.event(event_id))
+    notifications = {n["kind"]: n for n in runtime.store.notifications()}
+    assert notifications["surface"]["status"] == "local"
+    assert notifications["alert"]["status"] == "delivered"
+    assert runtime.notifier.sent == ["Flight plans need attention."]
+    assert runtime.evaluator.calls[0][0]["relevant_memories"][0]["body"] == "Flight UA123"
+
+
+@pytest.mark.asyncio
+async def test_update_decisions_include_only_matching_memory_context(runtime):
+    runtime.evaluator = FakeEvaluator(trigger=0.01)
+    await register(runtime, body="Flight UA123 departs at 08:05 on September 28.")
+    await register(runtime, memory_id="memories/demo/flight", body="Synthetic flight")
+    await register(runtime, memory_id="memories/chat-only", recipe='''\
+from memento import on, chat, noul, surface, this
+on(chat, when=noul("Relevant?"), do=surface(this))
+''')
+    await process(runtime, text="UA123 now departs at 06:30 instead of 08:05.")
+    state, _ = runtime.evaluator.calls[0]
+    assert state["relevant_memories"] == [{
+        "id": "memories/flight", "title": "Flight",
+        "body": "Flight UA123 departs at 08:05 on September 28.",
+    }]
+
+
+@pytest.mark.asyncio
+async def test_demo_email_is_clearly_labeled_without_changing_live_text(runtime):
+    runtime.notifier = FakeEmail()
+    await register(runtime, recipe=REMINDER, memory_id="memories/demo/synthetic")
+    await runtime.tick()
+    sent = runtime.notifier.calls[0]
+    assert sent["subject"].startswith("DEMO · ")
+    assert sent["text"].startswith("DEMO — synthetic example.")
+    assert "Leave for the airport." in sent["text"]
+
+
+@pytest.mark.asyncio
+async def test_email_failure_backs_off_outbox_and_reuses_notification_identity(runtime):
+    class FlakyEmail(FakeEmail):
+        fail = True
+
+        async def send(self, *args, **kwargs):
+            if self.fail:
+                self.calls.append(kwargs)
+                raise RuntimeError("Email provider temporarily unavailable")
+            return await super().send(*args, **kwargs)
+
+    runtime.notifier = FlakyEmail()
+    await register(runtime, recipe=REMINDER, memory_id="memories/first")
+    await register(runtime, recipe=REMINDER, memory_id="memories/second")
+    await runtime.tick()
+    first_id = runtime.notifier.calls[0]["notification_id"]
+    await runtime.tick()
+    await runtime.deliver()
+    assert len(runtime.notifier.calls) == 1  # Global outage backoff, not one row per tick.
+    failed = next(n for n in runtime.store.notifications() if n["id"] == first_id)
+    assert failed["attempts"] == 1 and failed["retry_at"]
+    runtime.notifier.fail = False
+    runtime.store.set_setting("email_send_retry_at", None)
+    runtime.store.db.execute("UPDATE notifications SET retry_at=NULL WHERE id=?", (first_id,))
+    runtime.store.db.commit()
+    await runtime.deliver()
+    assert len(runtime.notifier.sent) == 2
+    assert runtime.notifier.calls[1]["notification_id"] == first_id
+    assert all(n["status"] == "delivered" for n in runtime.store.notifications())
+
+
+@pytest.mark.asyncio
+async def test_email_retry_keeps_frozen_payload_when_its_rewrite_changes_title(runtime):
+    class IntentCheckingEmail(FakeEmail):
+        intents = {}
+
+        async def send(self, text, *, subject="Memento", notification_id=None):
+            intent = (subject, text)
+            if notification_id not in self.intents:
+                self.intents[notification_id] = intent
+                raise RuntimeError("Email outcome temporarily unknown")
+            assert self.intents[notification_id] == intent
+            return await super().send(text, subject=subject, notification_id=notification_id)
+
+    runtime.notifier = IntentCheckingEmail()
+    runtime.evaluator = FakeEvaluator()
+    await register(runtime)
+    await process(runtime)
+    pending = runtime.store.notifications()[0]
+    assert pending["delivery_subject"] == "Memento · Flight"
+    assert pending["delivery_text"] == "Flight changed."
+
+    # Same-event rewrite retains the alert but can change its memory's title.
+    await runtime.register_markdown(
+        "memories/flight", render_memory("Rescheduled flight", "New departure", "", []),
+        preserve_event_id="fixture:1",
+    )
+    runtime.store.set_setting("email_send_retry_at", None)
+    runtime.store.db.execute("UPDATE notifications SET retry_at=NULL")
+    runtime.store.db.commit()
+    await runtime.deliver()
+    assert runtime.store.notifications()[0]["status"] == "delivered"
+    assert runtime.notifier.calls[0]["subject"] == "Memento · Flight"
+    assert runtime.notifier.calls[0]["notification_id"] == pending["id"]
+
+    # A second preparation, including after reload, cannot alter saved bytes.
+    frozen = runtime.store.prepare_delivery(pending["id"], subject="Changed", text="Changed")
+    assert frozen["delivery_subject"] == "Memento · Flight"
+    assert frozen["delivery_text"] == "Flight changed."
+
+
+@pytest.mark.asyncio
+async def test_missing_consent_does_not_attempt_sends_or_repeat_connect(runtime):
+    class NeedsConsent(FakeEmail):
+        ready = False
+        connect_calls = 0
+
+        async def connect(self):
+            self.connect_calls += 1
+            raise RuntimeError("gmail.send is not granted")
+
+    runtime.notifier = NeedsConsent()
+    await register(runtime, recipe=REMINDER)
+    await runtime.tick()
+    await runtime.tick()
+    assert runtime.notifier.calls == []
+    assert runtime.notifier.connect_calls == 1
+    assert runtime.status["email"] == "needs_consent"
+    assert runtime.store.notifications()[0]["attempts"] == 0
+    assert runtime.store.notifications()[0]["status"] == "pending"
+
+
+def test_old_delivery_ledger_migrates_without_losing_acknowledgments(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.executescript('''
+        CREATE TABLE notifications (
+            id TEXT PRIMARY KEY, memory_id TEXT NOT NULL, memory_revision TEXT NOT NULL,
+            event_id TEXT, kind TEXT NOT NULL, text TEXT NOT NULL,
+            status TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT,
+            telegram_message_id TEXT, error TEXT
+        );
+        INSERT INTO notifications VALUES (
+            'legacy', 'memories/old', 'r1', NULL, 'alert', 'Old alert',
+            'delivered', '2026-09-27T20:00Z', '2026-09-27T20:01Z', 'old-ack', NULL
+        );
+    ''')
+    connection.close()
+    store = Store(path)
+    try:
+        row = store.notifications()[0]
+        assert row["delivery_id"] == "old-ack"
+        assert row["status"] == "delivered"
+        assert row["attempts"] == 0 and row["retry_at"] is None
+        assert row["delivery_subject"] is None and row["delivery_text"] is None
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio
@@ -179,9 +400,9 @@ async def test_changed_memory_cancels_pending_old_behavior(runtime, change):
         with pytest.raises(RecipeError):
             await register(runtime, recipe="import os")
         assert runtime.store.memory(memory["id"])["error"]
-    runtime.telegram = FakeTelegram()
+    runtime.notifier = FakeEmail()
     await runtime.tick()
-    assert runtime.telegram.sent == []
+    assert runtime.notifier.sent == []
     assert runtime.store.notifications()[0]["status"] == "canceled"
 
 
@@ -204,11 +425,23 @@ async def test_body_edit_preserves_pending_reminder_but_not_delivered_duplicate(
     await runtime.tick()
     assert runtime.store.notifications()[0]["status"] == "pending"
     assert runtime.store.notifications()[0]["memory_revision"] == edited["revision"]
-    runtime.telegram = FakeTelegram()
+    runtime.notifier = FakeEmail()
     await runtime.deliver()
     await register(runtime, recipe=REMINDER, body="Added gate B2.")
     await runtime.tick()
-    assert len(runtime.telegram.sent) == 1
+    assert len(runtime.notifier.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_canonical_front_matter_changes_do_not_invalidate_behavior(runtime):
+    original = await register(runtime, recipe=REMINDER)
+    await runtime.tick()
+    canonical = original["markdown"].replace(
+        "---\n", "---\ntype: memory\nprovenance: gbrain\n", 1
+    )
+    changed = await runtime.register_markdown(original["id"], canonical)
+    assert changed["revision"] == original["revision"]
+    assert runtime.store.notifications()[0]["status"] == "pending"
 
 
 @pytest.mark.asyncio
@@ -315,7 +548,7 @@ async def test_partial_rewrite_failure_does_not_repeat_successful_work(runtime):
             )
 
     runtime.writer = PartialWriter()
-    runtime.telegram = FakeTelegram()
+    runtime.notifier = FakeEmail()
     await process(runtime)
     await runtime.wait_idle()
     assert runtime.store.event("fixture:1")["status"] == "failed"
@@ -323,7 +556,7 @@ async def test_partial_rewrite_failure_does_not_repeat_successful_work(runtime):
     await runtime.wait_idle()
     assert runtime.store.event("fixture:1")["status"] == "done"
     assert runtime.writer.attempts == {"memories/first": 1, "memories/second": 2}
-    assert len(runtime.telegram.sent) == 2
+    assert len(runtime.notifier.sent) == 2
     assert len(runtime.evaluator.calls) == 1
 
 
@@ -404,7 +637,7 @@ async def test_rewrite_and_gate_do_not_create_duplicate_memory(runtime):
     assert len(runtime.store.memories()) == 1
     assert runtime.store.event("fixture:1")["status"] == "done"
     # The memory rewrite must not cancel its own already-triggered alert while
-    # Telegram is disconnected or not paired yet.
+    # Email is disconnected or not paired yet.
     notifications = runtime.store.notifications()
     assert len(notifications) == 1
     assert notifications[0]["status"] == "pending"
@@ -428,11 +661,11 @@ async def test_expiration_stops_behavior_and_cancels_pending(runtime):
     await register(runtime, recipe=recipe)
     await runtime.tick()
     runtime.now = lambda demo=False: NOW + timedelta(hours=2)
-    runtime.telegram = FakeTelegram()
+    runtime.notifier = FakeEmail()
     await runtime.tick()
     assert runtime.store.notifications()[0]["status"] == "canceled"
     assert not runtime.store.memory("memories/flight")["active"]
-    assert runtime.telegram.sent == []
+    assert runtime.notifier.sent == []
 
 
 @pytest.mark.asyncio
@@ -453,6 +686,127 @@ async def test_memory_only_sync_never_ingests_google_pages(runtime):
     assert runtime.brain.syncs == []
     assert runtime.store.events() == []
     assert runtime.store.memory("memories/synced") is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_and_restore_without_updated_at_change_are_reconciled(runtime):
+    slug = "memories/lifecycle"
+    page = {"slug": slug, "source_id": "default", "updated_at": "2026-09-27T20:00:00Z",
+            "revision": "r1", "content": render_memory("Lifecycle", "A plan", REMINDER, [])}
+
+    class TimestampFilteredBrain(FakeBrain):
+        async def list_pages(self, updated_after=None, **kwargs):
+            # Match upstream's problematic semantics, rather than returning
+            # every row unconditionally and accidentally hiding the defect.
+            return [p for p in self.pages.values()
+                    if updated_after is None or p["updated_at"] > updated_after]
+
+    runtime.brain = TimestampFilteredBrain({slug: page})
+    await runtime.sync_brain()
+    assert runtime.store.memory(slug)["active"]
+    await runtime.tick()
+    assert runtime.store.notifications()[0]["status"] == "pending"
+    # Other pages moved the cursor past this memory before it was deleted.
+    runtime.store.set_setting("gbrain_cursor", "2026-09-27T21:00:00Z")
+    page["deleted_at"], page["revision"] = "2026-09-27T21:01:00Z", "r2"
+    await runtime.sync_brain()
+    assert not runtime.store.memory(slug)["active"]
+    assert runtime.store.notifications()[0]["status"] == "canceled"
+    assert len(runtime.brain.gets) == 1  # A tombstone needs no body read.
+    page["deleted_at"], page["revision"] = None, "r3"
+    await runtime.sync_brain()
+    assert runtime.store.memory(slug)["active"]
+    assert runtime.store.setting(f"gbrain_revision:{slug}") == "r3"
+    assert len(runtime.brain.gets) == 2
+    await runtime.sync_brain()
+    assert len(runtime.brain.gets) == 2  # Stable metadata does not re-read bodies.
+
+
+@pytest.mark.asyncio
+async def test_enabled_google_sync_uses_normalized_deduplicated_events(runtime):
+    runtime.settings.gbrain_enabled = True
+    native = {
+        "slug": "emails/thread", "source_id": "google", "type": "email",
+        "updated_at": "2026-09-27T21:00:00Z", "revision": "email-r1",
+        "frontmatter": {"message_id": "same-message", "account": "fixture",
+                        "from": "Airline <notice@example.test>"},
+        "content": "## Me · 2026-09-26 08:00\nOld fact\n"
+                   "## Airline · 2026-09-27 09:00\nNew departure time",
+    }
+    supplement = {
+        **native, "slug": "events/gmail/same-message", "source_id": "default",
+        "content": "New departure time",
+    }
+    calendar = {
+        "slug": "calendar/event", "source_id": "google", "type": "meeting",
+        "updated_at": "2026-09-27T21:00:01Z", "revision": "calendar-r1",
+        "frontmatter": {"event_id": "calendar-event", "start": "2026-09-28T11:00Z"},
+        "content": "Flight on the calendar",
+    }
+    runtime.brain = FakeBrain({p["slug"]: p for p in [native, supplement, calendar]})
+
+    class Intake:
+        polled = 0
+
+        async def poll(self):
+            assert runtime.brain.syncs  # Native sync occurs first.
+            self.polled += 1
+            return []
+
+    runtime.google_intake = Intake()
+    await runtime.sync_brain()
+    events = runtime.store.events()
+    assert runtime.google_intake.polled == 1
+    assert len(events) == 2  # Same Gmail message across both sources, once.
+    email = next(e for e in events if e["source"] == "email")
+    assert email["payload"]["text"] == "New departure time"
+    assert email["payload"]["from_address"] == "notice@example.test"
+    assert next(e for e in events if e["source"] == "calendar")["payload"]["start"] == "2026-09-28T11:00Z"
+
+
+@pytest.mark.asyncio
+async def test_remote_rewrite_uses_observed_revision_not_latest_revision(runtime):
+    original = await register(runtime)
+    runtime.store.set_setting("gbrain_revision:memories/flight", "observed-r1")
+
+    class RemoteBrain:
+        calls = []
+
+        async def get_page(self, *args, **kwargs):
+            pytest.fail("fresh remote revision must not bless a stale rewrite")
+
+        async def put_page(self, *args, **kwargs):
+            self.calls.append(kwargs)
+            assert kwargs["expected_revision"] == "observed-r1"
+            raise RuntimeError("revision_conflict")
+
+    runtime.brain, runtime.writer = RemoteBrain(), FakeWriter()
+    result = await runtime.write_memory({"id": "change"}, existing=original)
+    assert result is None
+    assert runtime.store.memory(original["id"])["revision"] == original["revision"]
+    assert len(runtime.brain.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_brain_write_reuses_intent_and_never_claims_commit(runtime):
+    class PendingBrain:
+        calls = []
+
+        async def put_page(self, *args, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return {"state": "pending"}
+            return {"state": "committed", "revision": "committed-r1"}
+
+    runtime.brain = PendingBrain()
+    markdown = render_memory("Plan", "A sourced plan", "", [])
+    with pytest.raises(RuntimeError, match="pending"):
+        await runtime.register_markdown("memories/plan", markdown, write_brain=True)
+    assert runtime.store.memory("memories/plan") is None
+    await runtime.register_markdown("memories/plan", markdown, write_brain=True)
+    assert runtime.brain.calls[0] == runtime.brain.calls[1]
+    assert runtime.store.setting("gbrain_revision:memories/plan") == "committed-r1"
+    assert runtime.store.memory("memories/plan") is not None
 
 
 @pytest.mark.asyncio
@@ -485,17 +839,17 @@ async def test_clock_is_independent_of_slow_evaluation_and_stop_closes_clients(r
             return await super().decide(*args, **kwargs)
 
     runtime.evaluator, runtime.writer = SlowEvaluator(), FakeWriter()
-    runtime.telegram = FakeTelegram()
+    runtime.notifier = FakeEmail()
     await register(runtime, recipe=REMINDER)
     await runtime.submit("email", {"text": "A test event"})
     await runtime.start()
     await started.wait()
     for _ in range(100):
-        if runtime.telegram.sent:
+        if runtime.notifier.sent:
             break
         await asyncio.sleep(0.005)
-    assert runtime.telegram.sent == ["Leave for the airport."]
+    assert runtime.notifier.sent == ["Leave for the airport."]
     await runtime.stop()
-    assert runtime.writer.closed and runtime.telegram.closed
+    assert runtime.writer.closed and runtime.notifier.closed
     assert runtime.worker_tasks == []
     assert not runtime.tasks

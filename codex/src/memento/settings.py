@@ -13,8 +13,7 @@ class Settings(BaseModel):
     jev_api_key: str = Field(default="", repr=False)
     river_api_key: str = Field(default="", repr=False)
     river_model: str = "Qwen/Qwen3.6-35B-A3B-FP8"
-    telegram_token: str = Field(default="", repr=False)
-    telegram_chat_id: str = ""
+    email_recipient: str = ""
     timezone: str = "America/Los_Angeles"
     sync_seconds: float = 20.0
     gbrain_enabled: bool = False
@@ -34,8 +33,7 @@ class Settings(BaseModel):
             jev_api_key=os.getenv("JEV_API_KEY", ""),
             river_api_key=os.getenv("RIVER_API_KEY", ""),
             river_model=os.getenv("RIVER_MODEL", "Qwen/Qwen3.6-35B-A3B-FP8"),
-            telegram_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
-            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+            email_recipient=os.getenv("MEMENTO_EMAIL_TO", ""),
             timezone=os.getenv("MEMENTO_TIMEZONE", "America/Los_Angeles"),
             sync_seconds=float(os.getenv("MEMENTO_SYNC_SECONDS", "20")),
             gbrain_enabled=os.getenv("MEMENTO_GBRAIN_ENABLED", "0") == "1",

@@ -20,6 +20,7 @@ from uuid import NAMESPACE_URL, uuid5
 import yaml
 
 from .gbrain import GBrain, GBrainError
+from .email_notify import is_memento_notification
 
 
 _THREAD_HEADER = re.compile(
@@ -44,13 +45,32 @@ def _newest_message(body: str) -> str:
     if headers:
         body = body[headers[-1].end():].lstrip()
         # The renderer puts citation and To/Cc routing above each message.
-        body = re.sub(r"^\[Source:.*?\]\s*\n", "", body, count=1)
+        body = re.sub(r"^\[Source:[^\n]*\n", "", body, count=1)
         body = re.sub(r"^To: [^\n]*\n", "", body.lstrip(), count=1)
     # Avoid feeding quoted historical commitments back as a new observation.
     body = re.split(r"\nOn [^\n]{0,200}wrote:|\n--\s*\n", body, maxsplit=1)[0]
     return "\n".join(
         line for line in body.splitlines() if not line.lstrip().startswith(">")
     ).strip()[:16_000]
+
+
+def _latest_subject(body: str, fallback: str) -> tuple[str, bool]:
+    """Native thread titles describe the FIRST message; citations describe each."""
+    headers = list(_THREAD_HEADER.finditer(body))
+    if not headers:
+        return fallback, False
+    section = body[headers[-1].end():].lstrip()
+    citation = re.match(
+        r'^\[Source: email "(.*?)", \d{4}-\d{2}-\d{2}\]\(', section,
+    )
+    if not citation:
+        return fallback, False
+    subject = citation.group(1)
+    # GBrain's scaffold removes [] and caps citation labels at 80 characters.
+    # Restore the original title only when its exact sanitized form matches;
+    # a last-message "Re: ..." remains distinct from the first thread title.
+    sanitized_title = re.sub(r"[\[\]]", "", re.sub(r"[\r\n]", " ", fallback)).strip()[:80]
+    return (fallback if subject == sanitized_title else subject), True
 
 
 def normalize_gbrain_event(page: dict[str, Any]) -> dict[str, Any]:
@@ -82,10 +102,14 @@ def normalize_gbrain_event(page: dict[str, Any]) -> dict[str, Any]:
         for key in ("from", "to", "cc", "date", "thread_id", "message_id", "labels", "url"):
             if key in fm:
                 payload[key] = fm[key]
-        payload["subject"] = title
+        if slug.startswith("emails/"):
+            payload["subject"], payload["subject_is_latest"] = _latest_subject(_body(page), title)
+        else:
+            payload["subject"], payload["subject_is_latest"] = title, True
         payload["from_address"] = parseaddr(str(fm.get("from", "")))[1].lower()
         payload["received_at"] = fm.get("date")
         payload["text"] = _newest_message(_body(page))
+        payload["memento_notification"] = is_memento_notification(payload)
         identity = fm.get("message_id") or f"{source_id}:{slug}:{page.get('revision', '')}"
         event_id = f"gmail:{account_hash}:{identity}"
         return {"source": "email", "payload": payload, "event_id": event_id}
@@ -185,20 +209,21 @@ class GoogleAutomatedIntake:
             "calendar-notification", "mailer-daemon", "postmaster",
             "donotreply", "do-not-reply",
         ))
-        return {"query": f"after:{now - 86400} before:{now + 1} -in:spam -in:trash {{{senders}}}",
+        return {"query": f'after:{now - 86400} before:{now + 1} -in:spam -in:trash -subject:"[Memento]" {{{senders}}}',
                 "page_token": None, "started_at": now}
 
     async def _fetch(self, state: dict[str, Any]) -> dict[str, Any]:
         self.brain.home.mkdir(parents=True, exist_ok=True)
         helper = self.brain.home / ".memento-google-intake.ts"
-        # Helper contains code only, never account content or credentials.
-        helper.write_text(_BRIDGE)
-        helper.chmod(0o600)
         bridge = GBrain(
             [self.brain.command[0], str(helper)], self.brain.home,
             timeout=self.brain.timeout,
         )
         async with bridge._serialized():
+            # Write under the same ownership lock: another process cannot read
+            # a partially rewritten helper. It contains code only, no secrets.
+            helper.write_text(_BRIDGE)
+            helper.chmod(0o600)
             return await bridge._execute([
                 str(self.checkout), json.dumps({**state, "limit": self.limit}),
             ])
