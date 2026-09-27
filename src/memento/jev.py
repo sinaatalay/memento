@@ -53,9 +53,9 @@ def state(page: Page, now: datetime) -> dict:
 def to_jev(question: Question) -> DecisionQuestion:
     if isinstance(question, Says):
         false = (
-            "The page does not report this. It is about something else, or mentions it only as a "
+            "The page does not report this. It is about something else, or mentions it only "
+            "as a question, plan, possibility or hypothetical."
         )
-        false += "question, plan, possibility or hypothetical."
         if question.unless:
             false += f" Also no: {question.unless}."
         return NoulQuestion(
