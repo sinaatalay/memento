@@ -131,6 +131,9 @@ class _This:
     def __repr__(self) -> str:
         return "this"
 
+    def __str__(self) -> str:
+        return str(_context().this)
+
 
 this: Page = _This()  # type: ignore[assignment]
 
@@ -168,6 +171,8 @@ def at(when: str | datetime, *, every: timedelta | None = None, until: str | dat
     moment = _moment(when, "at()")
     if every is None and until is None:
         return moment
+    if every is None:
+        raise RecipeError("at(..., until=...) only makes sense with every=, e.g. every=days(1)")
     if not isinstance(every, timedelta) or every < timedelta(minutes=1):
         raise RecipeError("at(..., every=...): repeat at most once a minute, e.g. every=days(1)")
     end = _moment(until, "at(..., until=...)") if until is not None else None

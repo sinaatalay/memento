@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import builtins
 import hashlib
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +22,7 @@ from . import api
 from .api import Context, Effect, Page, Question, RecipeError, Trigger
 
 MAX_RANGE = 10_000
+MAX_STEPS = 200_000  # lines a recipe may execute per load or handler call
 
 _BANNED_NAMES = {
     "eval", "exec", "compile", "open", "input", "globals", "locals", "vars", "getattr",
@@ -101,6 +103,31 @@ def lint(source: str) -> list[str]:
     return problems
 
 
+class _Budget:
+    """Counts the lines a recipe executes, and stops it past MAX_STEPS."""
+
+    def __init__(self) -> None:
+        self.steps = 0
+        self.previous = None
+
+    def __enter__(self) -> None:
+        self.previous = sys.gettrace()
+        sys.settrace(self._call)
+
+    def __exit__(self, *exc) -> None:
+        sys.settrace(self.previous)
+
+    def _call(self, frame, event, arg):
+        return self._line if frame.f_code.co_filename == "recipe.py" else None
+
+    def _line(self, frame, event, arg):
+        if event == "line":
+            self.steps += 1
+            if self.steps > MAX_STEPS:
+                raise RecipeError(f"the recipe ran more than {MAX_STEPS:,} steps")
+        return self._line
+
+
 @dataclass
 class Recipe:
     """A loaded recipe: its triggers, each with a stable key."""
@@ -134,7 +161,8 @@ def load(source: str, memory: Page, now: datetime) -> Recipe:
     ctx = Context(this=memory, now=now, triggers=[])
     token = api._current.set(ctx)
     try:
-        exec(compile(source, "recipe.py", "exec"), {"__name__": "recipe", "__builtins__": _SAFE_BUILTINS})
+        with _Budget():
+            exec(compile(source, "recipe.py", "exec"), {"__name__": "recipe", "__builtins__": _SAFE_BUILTINS})
     except RecipeError as e:
         raise RecipeError(f"{_where(e)}{e}") from None
     except Exception as e:
@@ -168,7 +196,8 @@ def run(
     token = api._current.set(ctx)
     try:
         takes_news = trigger.fn.__code__.co_argcount > 0
-        trigger.fn(news) if takes_news else trigger.fn()
+        with _Budget():
+            trigger.fn(news) if takes_news else trigger.fn()
     except RecipeError as e:
         raise RecipeError(f"{_where(e)}{e}") from None
     except Exception as e:

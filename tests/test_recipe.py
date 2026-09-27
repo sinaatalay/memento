@@ -143,3 +143,25 @@ def test_semantic_questions_need_a_handler():
 
 def test_lint_is_quiet_for_good_recipes():
     assert lint(FLIGHT) == []
+
+
+def test_runaway_recipes_are_stopped():
+    source = "x = [i * j for i in range(10000) for j in range(10000)]"
+    with pytest.raises(RecipeError, match="more than 200,000 steps"):
+        load(source, ME, NOW)
+    handler = """
+from memento import when, notify
+
+@when("anything")
+def spin(news):
+    total = sum(1 for i in range(10000) for j in range(10000))
+    notify(str(total))
+"""
+    trigger = next(iter(load(handler, ME, NOW).triggers.values()))
+    with pytest.raises(RecipeError, match="steps"):
+        run(trigger, ME, NOW, lambda p, q: None, NEWS)
+
+
+def test_until_needs_every():
+    with pytest.raises(RecipeError, match="until=...\\) only makes sense with every="):
+        load('from memento import at\n@at("2026-10-01 09:00", until="2026-10-09 09:00")\ndef f():\n    pass\n', ME, NOW)
