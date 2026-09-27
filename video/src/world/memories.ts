@@ -32,13 +32,13 @@ export const FLIGHT: Memory = {
   p1: 0.03,
   p2: 0.97,
   showP: true,
-  question: "does this change ua 123?",
+  question: "UA123 is delayed or rescheduled",
   chat: "flying to new york on monday. ua 123, 11am.",
 };
 
 const CHAT = [
-  { chat: "acme needs our soc 2 report before the pilot.", g: -1.25, question: "is our soc 2 report out?", listens: true, p1: 0.0, p2: 0.01 },
-  { chat: "priya's hiring a founding designer.", g: 1.2, question: "is a designer free for a founding role?", listens: true, p1: 0.01, p2: 0.0 },
+  { chat: "acme needs our soc 2 report before the pilot.", g: -1.25, question: "our SOC 2 report has been issued", listens: true, p1: 0.0, p2: 0.01 },
+  { chat: "priya's hiring a founding designer.", g: 1.2, question: "a product designer is looking for a role", listens: true, p1: 0.01, p2: 0.0 },
   { chat: "sam's birthday is october 3rd.", g: -0.35, remindAt: day(5, 10, 0), listens: false, p1: 0, p2: 0 },
 ];
 
@@ -67,7 +67,7 @@ for (let i = 0; i < N; i++) {
   const size = r();
   const kind = r();
   const listens = kind < 0.58;
-  const hasRemind = kind > 0.34 && kind < 0.86;
+  const hasRemind = kind > 0.45 && kind < 0.67;
   // future reminders: anywhere from Monday morning to months out
   const lead = 9 * Math.pow(1800 / 9, r());
   const ageK = Math.log(1 + age / 8) / Math.log(1 + 4200 / 8);

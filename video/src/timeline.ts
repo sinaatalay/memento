@@ -44,8 +44,8 @@ export const CUE = {
   cardClose: 28.55,
   alive: 29.05,
   // 5. night
-  ffStart: 29.5,
-  nightFull: 31.1,
+  ffStart: 29.85,
+  nightFull: 31.35,
   email1: 34.1,
   fan1: 34.55,
   no: 38.75,
@@ -78,7 +78,7 @@ export const LINES: Line[] = [
   { id: 7, text: "a few lines of Python, written by River the moment it's saved.", at: 20.8, dur: 3.6 },
   { id: 8, text: "Time is plain math.", at: 24.75, dur: 1.4 },
   { id: 9, text: "Meaning is a question, for Jev.", at: 26.45, dur: 2.0 },
-  { id: 10, text: "Sunday night. You're asleep.", at: 31.35, dur: 2.1 },
+  { id: 10, text: "Sunday night. You're asleep.", at: 31.5, dur: 2.1 },
   { id: 11, text: "Every email is checked against every memory, in one call.", at: 33.9, dur: 3.4 },
   { id: 12, text: "An airline promo? No.", at: 37.45, dur: 1.8 },
   { id: 13, text: "Your flight moved? Yes.", at: 39.35, dur: 1.9 },
@@ -121,8 +121,8 @@ export const nowX = track([
 export const lineY = track([
   [0, 655],
   [CUE.rewind, 655],
-  [CUE.rewindEnd, 905],
-  [CUE.cardClose, 905],
+  [CUE.rewindEnd, 950],
+  [CUE.cardClose, 950],
   [CUE.nightFull, 600],
   [CUE.dawn, 600],
   [CUE.fire - 0.6, 655],
@@ -140,23 +140,40 @@ export const axisScale = track([
   [CUE.wordmark, 150],
 ]);
 
-/** 0 = paper, 1 = night. */
-export const nightness = track([
-  [0, 0],
-  [CUE.ffStart + 0.3, 0],
-  [CUE.nightFull, 1],
-  [CUE.dawn, 1],
-  [CUE.fire - 0.2, 0],
-  [DURATION, 0],
-]);
+/**
+ * Night arrives from the future: a soft terminator sweeps in from the right at dusk,
+ * and day follows it the same way at dawn. nightAt(t, x) is 0 (paper) .. 1 (night).
+ */
+const DUSK: [number, number] = [CUE.ffStart + 0.15, CUE.nightFull - 0.05];
+const DAWN: [number, number] = [CUE.dawn + 0.1, CUE.fire - 0.3];
+const SOFT = 320;
+const sweep = (t: number, [a, b]: [number, number]) => {
+  const k = Math.min(1, Math.max(0, (t - a) / (b - a)));
+  return k * k * (3 - 2 * k);
+};
+export const terminator = (t: number) => {
+  const dawnSide = t > (CUE.nightFull + CUE.dawn) / 2;
+  const p = sweep(t, dawnSide ? DAWN : DUSK);
+  return { edge: 1920 + 420 - p * (1920 + 840), nightOnRight: !dawnSide, p, active: p > 0 && p < 1 };
+};
+export const nightAt = (t: number, x: number) => {
+  const { edge, nightOnRight, p } = terminator(t);
+  if (p <= 0) return nightOnRight ? 0 : 1;
+  if (p >= 1) return nightOnRight ? 1 : 0;
+  const k = Math.min(1, Math.max(0, (x - (edge - SOFT)) / (2 * SOFT)));
+  const s = k * k * (3 - 2 * k);
+  return nightOnRight ? s : 1 - s;
+};
+export const nightness = (t: number) => nightAt(t, 960);
+export const TERMINATOR_SOFT = SOFT;
 
 /** Where the presenter stands (left third) and whether they're on screen. */
 export const presenterOn = track([
   [0, 1],
   [CUE.rewind - 0.2, 1],
   [CUE.rewind + 0.5, 0],
-  [CUE.dawn + 0.3, 0],
-  [CUE.dawn + 1.0, 1],
+  [CUE.fire - 0.55, 0],
+  [CUE.fire + 0.25, 1],
   [CUE.outro - 0.2, 1],
   [CUE.outro + 0.5, 0],
 ]);

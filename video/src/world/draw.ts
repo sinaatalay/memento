@@ -1,15 +1,18 @@
 import { clamp, ease, lerp, ramp, springAt, window } from "../lib/math";
-import { ACCENT, DISPLAY, INK, MONO, NIGHT_INK, SERIF, W } from "../theme";
+import { ACCENT, DISPLAY, INK, MONO, NIGHT, NIGHT_INK, PAPER, SERIF, W } from "../theme";
 import {
   CUE,
   STORY,
+  TERMINATOR_SOFT,
   axisScale,
   clockLabel,
   dayName,
   lineY,
+  nightAt,
   nightness,
   nowX,
   storyTime,
+  terminator,
 } from "../timeline";
 import { FLIGHT, LISTENERS, MEMORIES, MONTAGE, type Memory } from "./memories";
 
@@ -25,6 +28,7 @@ type View = {
   S: number;
   night: number;
   ink: (a: number) => string;
+  bg: (a: number) => string;
   accent: (a: number) => string;
 };
 
@@ -33,23 +37,26 @@ const hexRGB = (h: string) => {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 };
 const INK_RGB = hexRGB(INK);
-const NIGHT_RGB = hexRGB(NIGHT_INK);
+const NIGHT_INK_RGB = hexRGB(NIGHT_INK);
+const PAPER_RGB = hexRGB(PAPER);
+const NIGHT_RGB = hexRGB(NIGHT);
 const ACC_RGB = hexRGB(ACCENT);
-
-export const view = (t: number): View => {
-  const night = nightness(t);
-  const c = INK_RGB.map((v, i) => Math.round(lerp(v, NIGHT_RGB[i], night)));
-  return {
-    t,
-    T: storyTime(t),
-    nx: nowX(t),
-    ly: lineY(t),
-    S: axisScale(t),
-    night,
-    ink: (a) => `rgba(${c[0]},${c[1]},${c[2]},${clamp(a)})`,
-    accent: (a) => `rgba(${ACC_RGB[0]},${ACC_RGB[1]},${ACC_RGB[2]},${clamp(a)})`,
-  };
+const rgbaOf = (a: number[], b: number[], k: number) => {
+  const c = a.map((v, i) => Math.round(lerp(v, b[i], k)));
+  return (alpha: number) => `rgba(${c[0]},${c[1]},${c[2]},${clamp(alpha)})`;
 };
+
+export const view = (t: number, night = nightness(t)): View => ({
+  t,
+  T: storyTime(t),
+  nx: nowX(t),
+  ly: lineY(t),
+  S: axisScale(t),
+  night,
+  ink: rgbaOf(INK_RGB, NIGHT_INK_RGB, night),
+  bg: rgbaOf(PAPER_RGB, NIGHT_RGB, night),
+  accent: (a) => `rgba(${ACC_RGB[0]},${ACC_RGB[1]},${ACC_RGB[2]},${clamp(a)})`,
+});
 
 export const X = (v: View, Tp: number) => {
   const d = Tp - v.T;
@@ -66,15 +73,57 @@ const ageK = (age: number) => clamp(Math.log(1 + Math.max(0, age) / 8) / Math.lo
 
 const cardFocus = (t: number) => window(t, CUE.cardOpen - 0.3, CUE.cardClose + 0.5, 0.5, 0.7);
 const worldFade = (t: number) => 1 - ramp(t, CUE.outro, CUE.outro + 1.3, ease.inOut);
-const flightRemindAt = (t: number) =>
-  lerp(STORY.remind, STORY.remindNew, ramp(t, CUE.rewrite + 0.1, CUE.rewrite + 0.9, ease.inOut));
-const flightDepartAt = (t: number) =>
-  lerp(STORY.flight, STORY.flightNew, ramp(t, CUE.rewrite + 0.1, CUE.rewrite + 0.9, ease.inOut));
+const rewriteK = (t: number) => ramp(t, CUE.rewrite + 0.1, CUE.rewrite + 0.9, ease.inOut);
+const flightRemindAt = (t: number) => lerp(STORY.remind, STORY.remindNew, rewriteK(t));
+const flightDepartAt = (t: number) => lerp(STORY.flight, STORY.flightNew, rewriteK(t));
 
-/* ---------- pieces ---------- */
+/* ---------- helpers ---------- */
 
 const font = (px: number, family: string, style = "", weight = 400) =>
   `${style} ${weight} ${px}px '${family}'`.trim();
+
+const roundRect = (ctx: C, x: number, y: number, w: number, h: number, r: number) => {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+};
+
+/** A label on a quiet backing, so it reads over the memory cloud. */
+const pill = (ctx: C, v: View, x: number, y: number, w: number, h: number, a: number) => {
+  ctx.fillStyle = v.bg(0.86 * a);
+  roundRect(ctx, x, y, w, h, Math.min(10, h / 2));
+  ctx.fill();
+};
+
+type Run = { s: string; f: string; c: string; strike?: number };
+/** Draw styled runs left to right; returns total width. */
+const runs = (ctx: C, parts: Run[], x: number, y: number, measureOnly = false) => {
+  let cx = x;
+  for (const p of parts) {
+    ctx.font = p.f;
+    const w = ctx.measureText(p.s).width;
+    if (!measureOnly) {
+      ctx.fillStyle = p.c;
+      ctx.fillText(p.s, cx, y);
+      if (p.strike) {
+        ctx.strokeStyle = p.c;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cx - 1, y - 7);
+        ctx.lineTo(cx - 1 + (w + 2) * p.strike, y - 7);
+        ctx.stroke();
+      }
+    }
+    cx += w;
+  }
+  return cx - x;
+};
+
+/* ---------- axis ---------- */
 
 const drawAxis = (ctx: C, v: View) => {
   const p = ramp(v.t, CUE.lineDraw, CUE.lineDraw + 1.2, ease.inOut);
@@ -92,7 +141,6 @@ const drawAxis = (ctx: C, v: View) => {
   ctx.lineTo(right, v.ly + 0.5);
   ctx.stroke();
 
-  // day ticks
   const labels = ramp(v.t, 0.9, 1.8);
   const d0 = Math.floor((v.T - 4400) / 24);
   const d1 = Math.ceil((v.T + 2400) / 24);
@@ -124,7 +172,6 @@ const drawAxis = (ctx: C, v: View) => {
       lastLabelX = x;
     }
   }
-  // quarter-day ticks near now
   for (let h = Math.floor((v.T - 72) / 6) * 6; h < v.T + 72; h += 6) {
     if (h % 24 === 0) continue;
     const x = X(v, h);
@@ -156,11 +203,13 @@ const drawNow = (ctx: C, v: View) => {
   ctx.fillText(clockLabel(v.T), v.nx, v.ly - 40);
 };
 
-/** Point on the quadratic arc from a memory to a moment on the line. */
-const arcPoint = (x0: number, y0: number, x1: number, y1: number, k: number) => {
+/* ---------- recipes ---------- */
+
+/** Point on the arc from a memory to a moment on the line. */
+export const arcPoint = (x0: number, y0: number, x1: number, y1: number, k: number) => {
   const span = Math.abs(x1 - x0);
   const cx = (x0 + x1) / 2;
-  const cy = Math.min(y0, y1) - Math.max(26, span * 0.3);
+  const cy = Math.min(y0, y1) - clamp(30 + 0.22 * span, 26, 220);
   const u = 1 - k;
   return {
     x: u * u * x0 + 2 * u * k * cx + k * k * x1,
@@ -168,20 +217,11 @@ const arcPoint = (x0: number, y0: number, x1: number, y1: number, k: number) => 
   };
 };
 
-const strokeArc = (
-  ctx: C,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  from: number,
-  to: number,
-) => {
-  const steps = 48;
+const strokeArc = (ctx: C, x0: number, y0: number, x1: number, y1: number, from: number, to: number) => {
+  const steps = 56;
   ctx.beginPath();
   for (let i = 0; i <= steps; i++) {
-    const k = lerp(from, to, i / steps);
-    const p = arcPoint(x0, y0, x1, y1, k);
+    const p = arcPoint(x0, y0, x1, y1, lerp(from, to, i / steps));
     if (i === 0) ctx.moveTo(p.x, p.y);
     else ctx.lineTo(p.x, p.y);
   }
@@ -193,7 +233,6 @@ const isVisible = (v: View, m: Memory) => {
   return v.T >= m.created - 1e-6;
 };
 
-/** Recipes: arcs to future moments, halos that listen. */
 const drawRecipes = (ctx: C, v: View) => {
   const fade = worldFade(v.t);
   for (const m of MEMORIES) {
@@ -204,10 +243,10 @@ const drawRecipes = (ctx: C, v: View) => {
     if (x < -300 || x > W + 300) continue;
     const hero = m === FLIGHT;
     const dim = hero ? 1 : 1 - 0.8 * cardFocus(v.t);
-    if (m.listens && (x > -20 && x < W + 20)) {
+    if (m.listens && x > -20 && x < W + 20) {
       const ph = (m.created * 0.37) % 1;
-      const rr = m.r + 5 + 1.6 * Math.sin(2 * Math.PI * (v.t * 0.42 + ph));
-      ctx.strokeStyle = v.ink((hero ? 0.5 : 0.2) * woke * dim * fade);
+      const rr = m.r + 4 + 1.3 * Math.sin(2 * Math.PI * (v.t * 0.42 + ph));
+      ctx.strokeStyle = v.ink((hero ? 0.55 : 0.1 + 0.04 * v.night) * woke * dim * fade);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(x, y, rr, 0, Math.PI * 2);
@@ -218,13 +257,11 @@ const drawRecipes = (ctx: C, v: View) => {
     if (hero && v.t >= CUE.fire) continue; // delivered
     if (at <= v.T) continue;
     const x1 = X(v, at);
-    ctx.lineWidth = hero ? 1.25 : 1;
-    ctx.strokeStyle = hero
-      ? v.ink(0.8 * woke * fade)
-      : v.ink((0.075 + 0.05 * v.night) * woke * dim * fade);
+    ctx.lineWidth = hero ? 1.3 : 1;
+    ctx.strokeStyle = hero ? v.ink(0.85 * woke * fade) : v.ink((0.075 + 0.045 * v.night) * woke * dim * fade);
     strokeArc(ctx, x, y, x1, v.ly, 0, woke);
     if (woke > 0.98 && x1 < W + 10) {
-      ctx.fillStyle = hero ? v.ink(0.9 * fade) : v.ink(0.22 * dim * fade);
+      ctx.fillStyle = hero ? v.ink(0.9 * fade) : v.ink(0.25 * dim * fade);
       ctx.beginPath();
       ctx.arc(x1, v.ly, hero ? 3 : 1.6, 0, Math.PI * 2);
       ctx.fill();
@@ -232,18 +269,17 @@ const drawRecipes = (ctx: C, v: View) => {
   }
 };
 
+/* ---------- memories ---------- */
+
 const drawMemories = (ctx: C, v: View) => {
   const fade = worldFade(v.t);
-  const dt = 1 / 60;
-  const vPrev = view(v.t - dt);
+  const vPrev = view(v.t - 1 / 60, v.night);
   for (const m of MEMORIES) {
     if (!isVisible(v, m)) continue;
     const { x, y } = memPos(v, m);
     if (x < -30 || x > W + 30) continue;
-    const age = v.T - m.created;
-    const k = ageK(age);
+    const k = ageK(v.T - m.created);
     const hero = m === FLIGHT;
-    // background memories surface during the first line, nearest first
     const intro = m.appearAt !== undefined ? 1 : ramp(v.t, 1.0 + 1.9 * k, 1.5 + 1.9 * k, ease.out);
     const pop = m.appearAt !== undefined ? springAt(v.t, m.appearAt, 320, 16) : 1;
     const dim = hero ? 1 : 1 - 0.8 * cardFocus(v.t);
@@ -254,7 +290,6 @@ const drawMemories = (ctx: C, v: View) => {
     const dx = x - p0.x;
     const dy = y - p0.y;
     const smear = Math.hypot(dx, dy);
-    ctx.fillStyle = v.ink(alpha);
     if (smear > 1.5) {
       ctx.strokeStyle = v.ink(alpha * clamp(3 / smear + 0.35));
       ctx.lineCap = "round";
@@ -265,6 +300,7 @@ const drawMemories = (ctx: C, v: View) => {
       ctx.stroke();
       ctx.lineCap = "butt";
     } else {
+      ctx.fillStyle = v.ink(alpha);
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
@@ -283,50 +319,76 @@ const charOffsets = (ctx: C, text: string) => {
   return out;
 };
 
+/** A sentence gathers to its middle and becomes one drop of ink; the drop falls onto "now". */
+const condense = (
+  ctx: C,
+  v: View,
+  text: string,
+  x0: number,
+  y0: number,
+  size: number,
+  alpha: number,
+  t0: number,
+  gather: number,
+  fall: number,
+  dotR: number,
+  style = "",
+) => {
+  ctx.font = font(size, SERIF, style, 400);
+  ctx.textAlign = "left";
+  const offs = charOffsets(ctx, text);
+  const w = ctx.measureText(text).width;
+  const cx = x0 + w / 2;
+  const cy = y0 - size * 0.3;
+  const g = ramp(v.t, t0, t0 + gather, ease.inOut);
+  // letters slide together, thinning as they meet
+  if (g < 1) {
+    for (let i = 0; i < text.length; i++) {
+      const lx = x0 + offs[i];
+      const px = lerp(lx, cx - size * 0.15, g);
+      ctx.fillStyle = v.ink(alpha * Math.pow(1 - g, 1.7));
+      ctx.fillText(text[i], px, y0);
+    }
+  }
+  // the drop: forms where the words met, then falls to now
+  const form = ramp(v.t, t0 + gather * 0.45, t0 + gather, ease.out);
+  const f = ramp(v.t, t0 + gather, t0 + gather + fall, ease.inOut);
+  if (form > 0 && f < 1) {
+    const px = lerp(cx, v.nx, f);
+    const py = lerp(cy, v.ly, f) - Math.sin(Math.PI * f) * 38;
+    ctx.fillStyle = v.ink(0.92);
+    ctx.beginPath();
+    ctx.arc(px, py, dotR * form, 0, Math.PI * 2);
+    ctx.fill();
+  }
+};
+
 const drawChat = (ctx: C, v: View) => {
   const t = v.t;
-  if (t > CUE.land + 0.2) return;
+  if (t > CUE.land + 0.1) return;
   const text = FLIGHT.chat!;
   const typed = clamp((t - CUE.chatType) * 32, 0, text.length);
-  if (typed <= 0 && t < CUE.chatType) {
-    // the "you" label arrives first
-  }
   const labelA = ramp(t, CUE.chatType - 0.35, CUE.chatType) * (1 - ramp(t, CUE.condense - 0.1, CUE.condense + 0.2));
   ctx.textAlign = "left";
   ctx.font = font(14, MONO, "", 500);
   ctx.fillStyle = v.ink(0.42 * labelA);
   ctx.fillText("you", CHAT_X, CHAT_Y - 58);
 
-  ctx.font = font(44, SERIF, "", 400);
-  const offs = charOffsets(ctx, text);
-  for (let i = 0; i < Math.floor(typed); i++) {
-    const x0 = CHAT_X + offs[i];
-    const p = ramp(t, CUE.condense + 0.011 * i, CUE.condense + 0.011 * i + 0.42, ease.in);
-    const cx = lerp(x0, v.nx, 0.5);
-    const cy = Math.min(CHAT_Y, v.ly) - 70;
-    const u = 1 - p;
-    const px = u * u * x0 + 2 * u * p * cx + p * p * v.nx;
-    const py = u * u * (CHAT_Y) + 2 * u * p * cy + p * p * v.ly;
-    const s = lerp(1, 0.08, p);
-    if (p >= 1) continue;
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.scale(s, s);
-    ctx.fillStyle = v.ink(lerp(0.92, 0.6, p));
-    ctx.fillText(text[i], 0, 0);
-    ctx.restore();
-  }
-  // caret
   if (t < CUE.condense) {
+    ctx.font = font(44, SERIF, "", 400);
+    const shown = text.slice(0, Math.floor(typed));
+    ctx.fillStyle = v.ink(0.92);
+    ctx.fillText(shown, CHAT_X, CHAT_Y);
     const on = typed < text.length || Math.floor((t - CUE.chatType) * 2.2) % 2 === 0;
     if (on && t > CUE.chatType - 0.2) {
-      const cx = CHAT_X + (typed >= text.length ? ctx.measureText(text).width : offs[Math.floor(typed)] ?? 0) + 3;
+      const cx = CHAT_X + ctx.measureText(shown).width + 3;
       ctx.fillStyle = v.accent(0.95);
       ctx.fillRect(cx, CHAT_Y - 36, 2.5, 46);
     }
+  } else {
+    condense(ctx, v, text, CHAT_X, CHAT_Y, 44, 0.92, CUE.condense, 0.34, CUE.land - CUE.condense - 0.34, FLIGHT.r);
   }
-  // the assistant's ordinary reply
-  const replyA = ramp(t, CUE.chatReply, CUE.chatReply + 0.3) * (1 - ramp(t, CUE.condense, CUE.condense + 0.3));
+  const replyA = ramp(t, CUE.chatReply, CUE.chatReply + 0.3) * (1 - ramp(t, CUE.condense - 0.05, CUE.condense + 0.2));
   if (replyA > 0) {
     ctx.font = font(14, MONO, "", 500);
     ctx.fillStyle = v.ink(0.34 * replyA);
@@ -337,36 +399,20 @@ const drawChat = (ctx: C, v: View) => {
   }
 };
 
-/** Chat keeps happening; each line condenses into a memory at now. */
 const drawMontage = (ctx: C, v: View) => {
   MONTAGE.forEach((m) => {
     const t0 = m.appearAt!;
-    if (v.t < t0 - 0.7 || v.t > t0 + 0.05) return;
-    const a = ramp(v.t, t0 - 0.7, t0 - 0.5);
-    const p = ramp(v.t, t0 - 0.24, t0, ease.in);
+    if (v.t < t0 - 0.72 || v.t > t0 + 0.02) return;
     const text = m.chat!;
     ctx.font = font(30, SERIF, "", 400);
-    ctx.textAlign = "left";
     const w = ctx.measureText(text).width;
-    const x0 = v.nx - 40 - w;
-    const y0 = v.ly - 110;
-    const offs = charOffsets(ctx, text);
-    for (let i = 0; i < text.length; i++) {
-      const cx0 = x0 + offs[i];
-      const px = lerp(cx0, v.nx, p);
-      const py = lerp(y0, v.ly, p * p);
-      const s = lerp(1, 0.1, p);
-      ctx.save();
-      ctx.translate(px, py);
-      ctx.scale(s, s);
-      ctx.fillStyle = v.ink(0.72 * a * (1 - 0.4 * p));
-      ctx.fillText(text[i], 0, 0);
-      ctx.restore();
-    }
+    const x0 = v.nx - 60 - w;
+    const y0 = v.ly - 120;
+    const a = ramp(v.t, t0 - 0.72, t0 - 0.55);
+    condense(ctx, v, text, x0, y0, 30, 0.75 * a, t0 - 0.42, 0.2, 0.22, m.r);
   });
 };
 
-/** A drop lands: a ring spreads from the point. */
 const ripple = (ctx: C, x: number, y: number, t: number, t0: number, color: (a: number) => string, size = 34) => {
   const k = (t - t0) / 0.9;
   if (k < 0 || k > 1) return;
@@ -378,14 +424,12 @@ const ripple = (ctx: C, x: number, y: number, t: number, t0: number, color: (a: 
 };
 
 const drawLabels1 = (ctx: C, v: View) => {
-  // landing ripples
   ripple(ctx, v.nx, v.ly, v.t, CUE.land, v.ink, 40);
   MONTAGE.forEach((m) => {
     const p = memPos(v, m);
     ripple(ctx, p.x, p.y, v.t, m.appearAt!, v.ink, 22);
   });
   const fp = memPos(v, FLIGHT);
-  // saved to gbrain
   const sa = window(v.t, CUE.land + 0.15, CUE.flowStart + 0.4, 0.3, 0.5);
   if (sa > 0) {
     ctx.textAlign = "left";
@@ -393,7 +437,6 @@ const drawLabels1 = (ctx: C, v: View) => {
     ctx.fillStyle = v.ink(0.55 * sa);
     ctx.fillText("saved to gbrain", fp.x + 14, fp.y - 14);
   }
-  // it knew about Monday's flight
   const ka = window(v.t, 8.7, CUE.rewind + 0.1, 0.4, 0.4);
   if (ka > 0) {
     ctx.strokeStyle = v.ink(0.55 * ka);
@@ -403,54 +446,51 @@ const drawLabels1 = (ctx: C, v: View) => {
     ctx.stroke();
     ctx.textAlign = "left";
     ctx.font = font(24, SERIF, "italic");
-    ctx.fillStyle = v.ink(0.85 * ka);
-    ctx.fillText("flight to new york", fp.x + 22, fp.y - 20);
+    const w = ctx.measureText("flight to new york").width;
+    pill(ctx, v, fp.x + 16, fp.y - 46, w + 16, 34, ka);
+    ctx.fillStyle = v.ink(0.88 * ka);
+    ctx.fillText("flight to new york", fp.x + 24, fp.y - 21);
   }
 };
 
-/** The departure, sitting in the future. */
+/** The departure itself, sitting in the future. */
 const drawDeparture = (ctx: C, v: View) => {
-  const vis = Math.max(
-    window(v.t, 0.9, CUE.rewind + 0.2, 0.6, 0.35),
-    window(v.t, CUE.nightFull - 0.6, CUE.fire + 0.6, 0.6, 0.5),
-  ) * worldFade(v.t);
+  const vis =
+    Math.max(window(v.t, 0.9, CUE.rewind + 0.2, 0.6, 0.35), window(v.t, CUE.nightFull - 0.6, CUE.fire + 0.6, 0.6, 0.5)) *
+    worldFade(v.t);
   if (vis <= 0) return;
   const at = flightDepartAt(v.t);
   const x = X(v, at);
   if (x < -60 || x > W + 60) return;
   const past = at < v.T;
   const a = vis * (past ? 1 - clamp((v.T - at) / 2.5) : 1);
-  if (a <= 0) return;
-  ctx.strokeStyle = v.ink(0.8 * a);
-  ctx.fillStyle = v.ink(0.8 * a);
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.arc(x, v.ly, 4.5, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.font = font(15, MONO);
-  ctx.textAlign = "right";
-  const changed = ramp(v.t, CUE.rewrite + 0.1, CUE.rewrite + 0.9);
-  const label = v.t < CUE.rewind ? "ua 123 departs mon 11:00" : "ua 123 departs";
-  ctx.fillStyle = v.ink(0.7 * a);
-  if (v.t < CUE.rewind) {
-    ctx.fillText(label, x + 6, v.ly - 18);
-  } else {
-    ctx.textAlign = "left";
-    ctx.fillText(label, x - 30, v.ly - 44);
-    ctx.fillStyle = v.ink(0.7 * a * (1 - changed));
-    ctx.fillText("11:00", x - 30, v.ly - 22);
-    if (changed > 0) {
-      const w = ctx.measureText("11:00").width;
-      ctx.strokeStyle = v.ink(0.7 * a);
-      ctx.beginPath();
-      ctx.moveTo(x - 30, v.ly - 27);
-      ctx.lineTo(x - 30 + w * changed, v.ly - 27);
-      ctx.stroke();
-      ctx.fillStyle = v.accent(a * changed);
-      ctx.fillText("10:40", x - 30 + w + 12, v.ly - 22);
+  if (a > 0) {
+    ctx.strokeStyle = v.ink(0.8 * a);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(x, v.ly, 4.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.font = font(15, MONO);
+    if (v.t < CUE.rewind) {
+      ctx.textAlign = "right";
+      ctx.fillStyle = v.ink(0.7 * a);
+      ctx.fillText("ua123 departs mon 11:00", x + 6, v.ly - 18);
+    } else {
+      const ch = rewriteK(v.t);
+      ctx.textAlign = "left";
+      ctx.fillStyle = v.ink(0.7 * a);
+      ctx.fillText("ua123 departs", x - 30, v.ly - 44);
+      runs(
+        ctx,
+        [
+          { s: "11:00", f: font(15, MONO), c: v.ink(lerp(0.75, 0.38, ch) * a), strike: ch },
+          { s: "  10:40", f: font(15, MONO, "", 500), c: v.accent(a * ch) },
+        ],
+        x - 30,
+        v.ly - 22,
+      );
     }
   }
-  // crossing now, silently
   ripple(ctx, v.nx, v.ly, v.t, CUE.crossFlight, v.ink, 30);
 };
 
@@ -459,12 +499,11 @@ const drawDeparture = (ctx: C, v: View) => {
 type Email = { t: number; fan: number; resolve: number; yes: boolean; subject: string; key: "p1" | "p2"; ms: number };
 export const EMAILS: Email[] = [
   { t: CUE.email1, fan: CUE.fan1, resolve: CUE.no, yes: false, subject: "“New York from $99. This weekend only.”", key: "p1", ms: 146 },
-  { t: CUE.email2, fan: CUE.fan2, resolve: CUE.yes, yes: true, subject: "“UA 123 schedule change: now departs 10:40.”", key: "p2", ms: 139 },
+  { t: CUE.email2, fan: CUE.fan2, resolve: CUE.yes, yes: true, subject: "“UA123 schedule change: now departs 10:40.”", key: "p2", ms: 139 },
 ];
 
 const fanOrder = (() => {
-  // nearest memories hear the question first
-  const v = view(CUE.fan1);
+  const v = view(CUE.fan1, 1);
   const withD = LISTENERS.map((m) => {
     const p = memPos(v, m);
     return { m, d: Math.hypot(p.x - v.nx, p.y - v.ly) };
@@ -473,6 +512,7 @@ const fanOrder = (() => {
   return new Map(withD.map((w) => [w.m.id, w.d / max]));
 })();
 
+/** Nearest memories hear the question first. Exported for the score. */
 export const fanDelay = (m: Memory) => 0.55 * (fanOrder.get(m.id) ?? 0);
 
 const drawEmails = (ctx: C, v: View) => {
@@ -484,9 +524,8 @@ const drawEmails = (ctx: C, v: View) => {
     const ey = lerp(v.ly - 300, v.ly, drop);
     const gone = 1 - ramp(v.t, end - 0.1, end + 0.4);
     const a = ramp(v.t, e.t, e.t + 0.2) * gone;
-
-    // the question fans out to every listening memory
     const resolved = ramp(v.t, e.resolve, e.resolve + (e.yes ? 0.35 : 0.5), ease.inOut);
+
     for (const m of LISTENERS) {
       if (!isVisible(v, m)) continue;
       const hero = m === FLIGHT;
@@ -500,7 +539,7 @@ const drawEmails = (ctx: C, v: View) => {
       if (e.yes && hero) {
         alpha = lerp(alpha, 0.95 * gone, resolved);
         if (resolved > 0) color = v.accent;
-        lw = lerp(1, 1.6, resolved);
+        lw = lerp(1, 1.7, resolved);
       } else {
         alpha *= 1 - resolved;
       }
@@ -512,35 +551,37 @@ const drawEmails = (ctx: C, v: View) => {
       ctx.lineTo(lerp(ex, p.x, grow), lerp(v.ly, p.y, grow));
       ctx.stroke();
 
-      // answers
       const shown = ramp(v.t, e.fan + d + 0.3, e.fan + d + 0.55);
       if ((m.showP || hero) && shown > 0) {
-        const val = m[e.key];
         const heroYes = e.yes && hero;
         const pa = shown * (heroYes ? gone : 1 - resolved) * gone;
         if (pa > 0) {
           ctx.textAlign = "left";
-          ctx.font = font(heroYes ? 20 : hero ? 15 : 12, MONO, "", heroYes ? 500 : 400);
-          const shownVal = heroYes ? lerp(0.03, val, ramp(v.t, e.fan + d + 0.3, e.resolve, ease.out)) : val;
-          ctx.fillStyle = heroYes && resolved > 0 ? v.accent(pa) : v.ink((hero ? 0.8 : 0.5) * pa);
-          ctx.fillText(shownVal.toFixed(2), p.x + 10, p.y - 10);
+          ctx.font = font(heroYes ? 22 : hero ? 15 : 12, MONO, "", heroYes ? 500 : 400);
+          const val = heroYes ? lerp(0.03, m[e.key], ramp(v.t, e.fan + d + 0.3, e.resolve, ease.out)) : m[e.key];
+          ctx.fillStyle = heroYes && resolved > 0 ? v.accent(pa) : v.ink((hero ? 0.85 : 0.5) * pa);
+          ctx.fillText(val.toFixed(2), p.x + 11, p.y - 11);
         }
       }
     }
-    // each memory asks its own question
+    // every memory is asked its own question
     if (!e.yes) {
       const qa = window(v.t, e.fan + 0.3, e.resolve + 0.3, 0.5, 0.45);
-      for (const m of [FLIGHT, ...MONTAGE]) {
-        if (!m.question || qa <= 0) continue;
-        const p = memPos(v, m);
-        ctx.textAlign = "right";
-        ctx.font = font(20, SERIF, "italic");
-        ctx.fillStyle = v.ink(0.78 * qa);
-        ctx.fillText(m.question, p.x - 16, p.y + 7);
+      if (qa > 0) {
+        for (const m of [FLIGHT, ...MONTAGE]) {
+          if (!m.question) continue;
+          const p = memPos(v, m);
+          ctx.font = font(21, SERIF, "italic");
+          const w = ctx.measureText(m.question).width;
+          pill(ctx, v, p.x - 24 - w - 10, p.y - 17, w + 20, 32, qa);
+          ctx.textAlign = "right";
+          ctx.fillStyle = v.ink((m === FLIGHT ? 0.95 : 0.7) * qa);
+          ctx.fillText(m.question, p.x - 24, p.y + 6);
+        }
       }
     }
 
-    // the email itself
+    // the email
     ctx.strokeStyle = v.ink(0.95 * a);
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -552,21 +593,21 @@ const drawEmails = (ctx: C, v: View) => {
       ctx.textAlign = "left";
       ctx.font = font(13, MONO, "", 500);
       ctx.fillStyle = v.ink(0.5 * la);
-      ctx.fillText(`email · ${clockLabel(v.T).slice(4)}`, ex + 22, v.ly - 108);
-      ctx.font = font(27, SERIF, "italic");
-      ctx.fillStyle = v.ink(0.92 * la);
+      ctx.fillText(`new email · ${clockLabel(v.T).slice(4)}`, ex + 22, v.ly - 108);
+      ctx.font = font(28, SERIF, "italic");
+      ctx.fillStyle = v.ink(0.94 * la);
       ctx.fillText(e.subject, ex + 22, v.ly - 76);
     }
-    // one call, every memory
-    const sa = ramp(v.t, e.fan + 0.95, e.fan + 1.25) * (e.yes ? 1 - ramp(v.t, CUE.rewrite + 0.6, CUE.rewrite + 1.1) : 1 - ramp(v.t, e.resolve + 0.1, e.resolve + 0.5));
+    const sa =
+      ramp(v.t, e.fan + 0.95, e.fan + 1.25) *
+      (e.yes ? 1 - ramp(v.t, CUE.rewrite + 0.6, CUE.rewrite + 1.1) : 1 - ramp(v.t, e.resolve + 0.1, e.resolve + 0.5));
     if (sa > 0) {
       ctx.textAlign = "left";
       ctx.font = font(14, MONO);
-      ctx.fillStyle = v.ink(0.55 * sa);
-      ctx.fillText(`1 jev call · ${LISTENERS.length} questions · ${e.ms} ms`, ex + 22, v.ly + 64);
+      ctx.fillStyle = v.ink(0.7 * sa);
+      ctx.fillText(`1 jev call · ${LISTENERS.length} questions · ${e.ms} ms`, ex + 22, v.ly + 72);
     }
     if (e.yes) {
-      // the yes
       const glow = ramp(v.t, e.resolve, e.resolve + 0.4);
       const p = memPos(v, FLIGHT);
       if (glow > 0 && v.t < CUE.fire + 0.6) {
@@ -576,12 +617,24 @@ const drawEmails = (ctx: C, v: View) => {
         ctx.fill();
         ripple(ctx, p.x, p.y, v.t, e.resolve, v.accent, 40);
       }
-      const ra = window(v.t, CUE.rewrite, CUE.dawn + 0.8, 0.3, 0.6);
+      // the memory rewrites itself
+      const ra = window(v.t, CUE.rewrite, CUE.dawn + 0.9, 0.35, 0.6);
       if (ra > 0) {
-        ctx.textAlign = "right";
-        ctx.font = font(14, MONO);
-        ctx.fillStyle = v.ink(0.6 * ra);
-        ctx.fillText("rewritten by river", p.x - 16, p.y + 30);
+        const ch = rewriteK(v.t);
+        const line: Run[] = [
+          { s: "Flight to New York · Mon ", f: font(22, SERIF, "italic"), c: v.ink(0.9 * ra) },
+          { s: "11:00", f: font(22, SERIF, "italic"), c: v.ink(lerp(0.9, 0.4, ch) * ra), strike: ch },
+          { s: " 10:40", f: font(22, SERIF, "italic", 500), c: v.accent(ra * ch) },
+        ];
+        const w = runs(ctx, line, 0, 0, true);
+        const x0 = p.x - 26 - w;
+        const y0 = p.y + 54;
+        pill(ctx, v, x0 - 12, y0 - 26, w + 24, 62, ra);
+        ctx.textAlign = "left";
+        runs(ctx, line, x0, y0);
+        ctx.font = font(13, MONO);
+        ctx.fillStyle = v.ink(0.55 * ra);
+        ctx.fillText("update(news) · rewritten by river", x0, y0 + 24);
       }
     }
   }
@@ -590,40 +643,33 @@ const drawEmails = (ctx: C, v: View) => {
 /* ---------- act 4: it reaches you ---------- */
 
 const drawReminder = (ctx: C, v: View) => {
-  // the reminder's moment, labelled under the line once the recipe exists
-  const la = Math.max(window(v.t, CUE.nightFull - 0.4, CUE.fire + 0.1, 0.6, 0.2), 0) * worldFade(v.t);
+  const la = window(v.t, CUE.nightFull - 0.4, CUE.fire + 0.1, 0.6, 0.2) * worldFade(v.t);
   if (la > 0) {
-    const at = flightRemindAt(v.t);
-    const x = X(v, at);
-    const changed = ramp(v.t, CUE.rewrite + 0.1, CUE.rewrite + 0.9);
+    const x = X(v, flightRemindAt(v.t));
+    const ch = rewriteK(v.t);
     ctx.textAlign = "left";
     ctx.font = font(15, MONO);
     ctx.fillStyle = v.ink(0.7 * la);
-    ctx.fillText("remind", x - 30, v.ly + 30);
-    ctx.fillStyle = v.ink(0.7 * la * (1 - changed));
-    ctx.fillText("08:00", x - 30, v.ly + 52);
-    if (changed > 0) {
-      const w = ctx.measureText("08:00").width;
-      ctx.strokeStyle = v.ink(0.7 * la);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x - 30, v.ly + 47);
-      ctx.lineTo(x - 30 + w * changed, v.ly + 47);
-      ctx.stroke();
-      ctx.fillStyle = v.accent(la * changed);
-      ctx.fillText("07:40", x - 30 + w + 12, v.ly + 52);
-    }
+    ctx.fillText("leave for sfo", x - 30, v.ly + 30);
+    runs(
+      ctx,
+      [
+        { s: "08:00", f: font(15, MONO), c: v.ink(lerp(0.75, 0.38, ch) * la), strike: ch },
+        { s: "  07:40", f: font(15, MONO, "", 500), c: v.accent(la * ch) },
+      ],
+      x - 30,
+      v.ly + 52,
+    );
   }
-  // fire: the memory comes back to now along its own arc
   if (v.t >= CUE.fire && v.t < CUE.outro + 1.4) {
     const p = memPos(v, FLIGHT);
     const k = ramp(v.t, CUE.fire, CUE.notify, ease.inOut);
     const trail = Math.max(0, k - 0.35);
     ctx.strokeStyle = v.accent(0.85 * (1 - ramp(v.t, CUE.notify, CUE.notify + 0.8)));
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.7;
     strokeArc(ctx, p.x, p.y, v.nx, v.ly, trail, k);
     const head = arcPoint(p.x, p.y, v.nx, v.ly, k);
-    ctx.fillStyle = v.accent(1);
+    ctx.fillStyle = v.accent(v.t > CUE.outro + 0.2 ? 0 : 1);
     ctx.beginPath();
     ctx.arc(head.x, head.y, lerp(4, 7.5, k), 0, Math.PI * 2);
     ctx.fill();
@@ -635,6 +681,7 @@ const drawReminder = (ctx: C, v: View) => {
 /* ---------- close ---------- */
 
 export const WORDMARK = { text: "memento", size: 190, y: 560 };
+export const SYLLABLES = [CUE.wordmark, CUE.wordmark + 0.32, CUE.wordmark + 0.64];
 
 const drawWordmark = (ctx: C, v: View) => {
   if (v.t < CUE.outro) return;
@@ -645,27 +692,22 @@ const drawWordmark = (ctx: C, v: View) => {
   const total = w + dotR * 2.6;
   const x0 = W / 2 - total / 2;
   const base = WORDMARK.y;
-  // me · men · to, one syllable per note
-  const parts = [
-    { s: "me", at: CUE.wordmark },
-    { s: "men", at: CUE.wordmark + 0.32 },
-    { s: "to", at: CUE.wordmark + 0.64 },
-  ];
+  const out = 1 - ramp(v.t, CUE.fadeOut, CUE.fadeOut + 1.2);
   let x = x0;
-  for (const part of parts) {
-    const pw = ctx.measureText(part.s).width;
-    const a = ramp(v.t, part.at, part.at + 0.55, ease.out);
-    ctx.fillStyle = v.ink(a * (1 - ramp(v.t, CUE.fadeOut, CUE.fadeOut + 1.2)));
+  ["me", "men", "to"].forEach((s, i) => {
+    const pw = ctx.measureText(s).width;
+    const a = ramp(v.t, SYLLABLES[i], SYLLABLES[i] + 0.55, ease.out);
+    ctx.fillStyle = v.ink(a * out);
     ctx.save();
     ctx.translate(0, (1 - a) * 18);
-    ctx.fillText(part.s, x, base);
+    ctx.fillText(s, x, base);
     ctx.restore();
     x += pw;
-  }
-  // the memory that came back is the full stop
+  });
+  // the memory that came back becomes the full stop
   const dx = x0 + w + dotR * 1.5;
   const dy = base - dotR;
-  const k = ramp(v.t, CUE.outro + 0.2, CUE.wordmark + 0.64, ease.inOut);
+  const k = ramp(v.t, CUE.outro + 0.2, SYLLABLES[2], ease.inOut);
   const sx = lerp(v.nx, dx, k);
   const sy = lerp(v.ly, dy, k) - Math.sin(Math.PI * k) * 120;
   ctx.fillStyle = v.accent(1 - ramp(v.t, CUE.fadeOut + 0.2, CUE.fadeOut + 1.3));
@@ -673,14 +715,14 @@ const drawWordmark = (ctx: C, v: View) => {
   ctx.arc(sx, sy, lerp(7.5, dotR, k), 0, Math.PI * 2);
   ctx.fill();
 
-  const ta = ramp(v.t, CUE.tagline, CUE.tagline + 0.8) * (1 - ramp(v.t, CUE.fadeOut, CUE.fadeOut + 1.2));
+  const ta = ramp(v.t, CUE.tagline, CUE.tagline + 0.8) * out;
   if (ta > 0) {
     ctx.textAlign = "center";
     ctx.font = font(44, SERIF, "italic", 300);
     ctx.fillStyle = v.ink(0.8 * ta);
     ctx.fillText("memories that know when they matter.", W / 2, base + 100);
   }
-  const ca = ramp(v.t, CUE.credits, CUE.credits + 0.8) * (1 - ramp(v.t, CUE.fadeOut, CUE.fadeOut + 1.2));
+  const ca = ramp(v.t, CUE.credits, CUE.credits + 0.8) * out;
   if (ca > 0) {
     ctx.textAlign = "center";
     ctx.font = font(15, MONO);
@@ -691,11 +733,9 @@ const drawWordmark = (ctx: C, v: View) => {
 
 /* ---------- frame ---------- */
 
-export const drawWorld = (ctx: C, t: number) => {
-  const v = view(t);
+const paint = (ctx: C, v: View) => {
   ctx.clearRect(0, 0, W, 1080);
-  const fade = worldFade(t);
-  ctx.globalAlpha = fade;
+  ctx.globalAlpha = worldFade(v.t);
   drawAxis(ctx, v);
   ctx.globalAlpha = 1;
   drawRecipes(ctx, v);
@@ -708,4 +748,35 @@ export const drawWorld = (ctx: C, t: number) => {
   drawChat(ctx, v);
   drawMontage(ctx, v);
   drawWordmark(ctx, v);
+};
+
+/** Keep only the part of a pass that belongs to its side of the terminator. */
+const maskPass = (ctx: C, t: number, wantNight: boolean) => {
+  const { edge } = terminator(t);
+  const g = ctx.createLinearGradient(edge - TERMINATOR_SOFT, 0, edge + TERMINATOR_SOFT, 0);
+  for (let i = 0; i <= 12; i++) {
+    const x = edge - TERMINATOR_SOFT + (2 * TERMINATOR_SOFT * i) / 12;
+    const n = nightAt(t, x);
+    g.addColorStop(i / 12, `rgba(0,0,0,${wantNight ? n : 1 - n})`);
+  }
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, 1080);
+  ctx.globalCompositeOperation = "source-over";
+};
+
+export const drawWorld = (ctx: C, t: number, scratch: [C, C] | null) => {
+  const term = terminator(t);
+  if (!term.active || !scratch) {
+    paint(ctx, view(t));
+    return;
+  }
+  const [day, night] = scratch;
+  paint(day, view(t, 0));
+  maskPass(day, t, false);
+  paint(night, view(t, 1));
+  maskPass(night, t, true);
+  ctx.clearRect(0, 0, W, 1080);
+  ctx.drawImage(day.canvas, 0, 0, W, 1080);
+  ctx.drawImage(night.canvas, 0, 0, W, 1080);
 };

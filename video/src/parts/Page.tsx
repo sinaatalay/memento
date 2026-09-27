@@ -2,59 +2,28 @@ import React from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import { clamp, ease, lerp, ramp, springAt } from "../lib/math";
 import { ACCENT, INK, MONO, SERIF } from "../theme";
+import { FRONT_END, FRONT_TOP, JEV, MATH, RECIPE, TYPING, type Highlight } from "../recipe";
 import { CUE, lineY, nowX } from "../timeline";
 
 /** The flight memory as a GBrain page: first as it is today, then with its recipe. */
 
-const FS = 23;
-const LH = 37;
+const FS = 21;
+const LH = 33;
 const CH = FS * 0.6;
 const PAD_X = 50;
-const PAD_Y = 40;
+const PAD_Y = 34;
 const CARD_W = 1000;
-const BODY_H = 128;
+const BODY_H = 118;
 
 const ink = (a: number) => `rgba(28,27,25,${clamp(a)})`;
 const STR = "#8A6A4A";
 
-const FRONT_TOP = ["---", "title: Flight to New York", "type: trip", "date: 2026-09-28"];
-const RECIPE = [
-  "recipe: |",
-  "  from memento import *",
-  "",
-  '  flight = at("2026-09-28 11:00")',
-  '  remind(flight - hours(3), "Leave for SFO.")',
-  "",
-  "  on(email,",
-  '     when=noul("Does this email change UA 123?"),',
-  "     do=rewrite(this))",
-];
-const FRONT_END = ["---"];
-
 const BEFORE_H = PAD_Y * 2 + (FRONT_TOP.length + FRONT_END.length) * LH + BODY_H;
 const RECIPE_H = RECIPE.length * LH;
 
-/** Highlights, by recipe line and column. */
-const MATH = { line: 4, col: 9, len: 17, note: "= mon 08:00", sub: "plain math", at: CUE.mathHi };
-const JEV = { line: 7, col: 10, len: 38, note: "yes or no?", sub: "asked by jev", at: CUE.jevHi };
-
-/* River types the recipe: a steady hand with a breath at each line end. */
-const schedule = (() => {
-  const rate = 1 / 36;
-  const pause = 0.15;
-  let t = 0;
-  const lines = RECIPE.slice(1).map((l) => {
-    const start = t;
-    t += l.length === 0 ? 0.08 : l.length * rate + pause;
-    return { start, len: l.length };
-  });
-  const scale = (CUE.typeEnd - CUE.typeStart) / t;
-  return lines.map((l) => ({ start: CUE.typeStart + l.start * scale, perChar: rate * scale, len: l.len }));
-})();
-
 const revealed = (lineIdx: number, t: number) => {
   if (lineIdx === 0) return RECIPE[0].length;
-  const s = schedule[lineIdx - 1];
+  const s = TYPING[lineIdx - 1];
   return clamp(Math.floor((t - s.start) / s.perChar), 0, s.len);
 };
 
@@ -72,7 +41,12 @@ const tokenize = (line: string, yamlKey = false): Tok[] => {
       color = ACCENT;
       weight = 500;
     } else if (p === "from" || p === "import") color = ink(0.45);
-    else if (/^[A-Za-z_]/.test(p) && next === "(") weight = 500;
+    else if (p === "def") color = ink(0.45);
+    else if (p === "@") color = ACCENT;
+    else if (/^[A-Za-z_]/.test(p) && parts[i - 1] === "@") {
+      color = ACCENT;
+      weight = 500;
+    } else if (/^[A-Za-z_]/.test(p) && next === "(") weight = 500;
     else if (/^[A-Za-z_]/.test(p) && next === ":" && yamlKey) color = ink(0.45);
     else if (/^[^\sA-Za-z0-9"]$/.test(p)) color = ink(0.42);
     out.push({ s: p, color, weight });
@@ -114,20 +88,20 @@ export const Page: React.FC = () => {
   const ly = lineY(t);
   const recipeK = springAt(t, CUE.recipeOpen, 120, 19);
   const fullH = BEFORE_H + RECIPE_H * recipeK;
-  const bottom = ly - 38;
+  const bottom = ly - 36;
   const fullTop = bottom - fullH;
   const cx = lerp(nx, 960, s);
   const cy = lerp(ly, fullTop + fullH / 2, s);
   const w = lerp(13, CARD_W, s);
   const h = lerp(13, fullH, s);
-  const content = ramp(t, CUE.cardOpen + 0.3, CUE.cardOpen + 0.75) * (1 - ramp(t, CUE.cardClose - 0.15, CUE.cardClose + 0.1));
+  const content = ramp(t, CUE.cardOpen + 0.12, CUE.cardOpen + 0.45) * (1 - ramp(t, CUE.cardClose - 0.15, CUE.cardClose + 0.1));
 
   const labelBefore = 1 - ramp(t, CUE.recipeOpen - 0.1, CUE.recipeOpen + 0.3);
   const labelAfter = ramp(t, CUE.recipeOpen + 0.1, CUE.recipeOpen + 0.5);
 
   const caretLine = (() => {
     for (let i = RECIPE.length - 1; i >= 1; i--) {
-      if (t >= schedule[i - 1].start && RECIPE[i].length > 0) return i;
+      if (t >= TYPING[i - 1].start && RECIPE[i].length > 0) return i;
     }
     return 1;
   })();
@@ -136,7 +110,7 @@ export const Page: React.FC = () => {
   const caretOn = t < CUE.typeEnd || Math.floor(t * 2.4) % 2 === 0;
   const writtenA = ramp(t, CUE.typeEnd + 0.3, CUE.typeEnd + 0.8);
 
-  const hi = (spec: typeof MATH) => {
+  const hi = (spec: Highlight) => {
     const k = ramp(t, spec.at, spec.at + 0.45, ease.out);
     return k * (1 - ramp(t, CUE.cardClose - 0.4, CUE.cardClose));
   };
@@ -170,7 +144,8 @@ export const Page: React.FC = () => {
           fontFamily: MONO,
           fontSize: 16,
           letterSpacing: 0.3,
-          color: ink(0.5 * content),
+          color: ink(0.5),
+          opacity: content,
           whiteSpace: "nowrap",
         }}
       >
@@ -213,22 +188,24 @@ export const Page: React.FC = () => {
           {/* the recipe unfolds inside the front matter */}
           <div style={{ position: "absolute", top: recipeTop, height: RECIPE_H * recipeK, overflow: "hidden", width: "100%" }}>
             {/* highlight bands */}
-            {[{ spec: MATH, k: mathK }, { spec: JEV, k: jevK }].map(({ spec, k }, i) =>
-              k > 0 ? (
-                <div
-                  key={i}
-                  style={{
-                    position: "absolute",
-                    top: spec.line * LH + 3,
-                    left: spec.col * CH - 5,
-                    width: (spec.len * CH + 10) * k,
-                    height: LH - 6,
-                    borderRadius: 6,
-                    background: `rgba(236,78,32,${0.12 * k})`,
-                    boxShadow: `inset 0 -2px 0 rgba(236,78,32,${0.8 * k})`,
-                  }}
-                />
-              ) : null,
+            {[{ spec: MATH, k: mathK }, { spec: JEV, k: jevK }].flatMap(({ spec, k }, i) =>
+              k > 0
+                ? spec.ranges.map((r, j) => (
+                    <div
+                      key={`${i}-${j}`}
+                      style={{
+                        position: "absolute",
+                        top: r.line * LH + 3,
+                        left: r.col * CH - 5,
+                        width: (r.len * CH + 10) * k,
+                        height: LH - 6,
+                        borderRadius: 6,
+                        background: `rgba(236,78,32,${0.12 * k})`,
+                        boxShadow: `inset 0 -2px 0 rgba(236,78,32,${0.8 * k})`,
+                      }}
+                    />
+                  ))
+                : [],
             )}
             {RECIPE.map((l, i) => (
               <CodeLine key={i} text={l} yamlKey={i === 0} shown={revealed(i, t)} />
@@ -286,7 +263,7 @@ export const Page: React.FC = () => {
               Flight to New York
             </div>
             <div style={{ fontSize: 26, lineHeight: "40px", color: ink(0.62) }}>
-              UA 123 · SFO → JFK · Monday, Sep 28 at 11:00
+              UA123 · SFO → JFK · Monday, Sep 28 at 11:00
             </div>
           </div>
         </div>
@@ -295,8 +272,9 @@ export const Page: React.FC = () => {
       {[{ spec: MATH, k: mathK }, { spec: JEV, k: jevK }].map(({ spec, k }, i) => {
         if (k <= 0) return null;
         const cardLeft = cx - w / 2;
-        const y = cy - h / 2 + recipeTop + spec.line * LH + LH / 2;
-        const x0 = cardLeft + PAD_X + RECIPE[spec.line].length * CH + 18;
+        const y = cy - h / 2 + recipeTop + spec.noteLine * LH + LH / 2;
+        const widest = Math.max(...spec.ranges.map((r) => RECIPE[r.line].length));
+        const x0 = cardLeft + PAD_X + widest * CH + 18;
         const x1 = cardLeft + CARD_W + 36;
         return (
           <React.Fragment key={i}>

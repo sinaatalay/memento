@@ -1,5 +1,6 @@
 import React from "react";
-import { AbsoluteFill } from "remotion";
+import { Audio } from "@remotion/media";
+import { AbsoluteFill, staticFile } from "remotion";
 import { Backdrop, Grain } from "./parts/Backdrop";
 import { Notification } from "./parts/Notification";
 import { Page } from "./parts/Page";
@@ -16,5 +17,6 @@ export const Memento: React.FC<MementoProps> = ({ guides }) => (
     <Notification />
     <Presenter guides={guides} />
     <Grain />
+    <Audio src={staticFile("audio/score.wav")} />
   </AbsoluteFill>
 );
