@@ -172,8 +172,10 @@ def chat(message: str | None = None) -> None:
         "claude",
         "--mcp-config", str(mcp_config()),
         "--strict-mcp-config",
+        "--tools", "",  # no built-in tools: no web fetch, cron, sub-agents or code
+        "--disable-slash-commands",
         "--allowedTools", "mcp__gbrain__*",
-        "--disallowedTools", "Write Edit Read Bash Glob Grep",
+        "--permission-mode", "default",
         "--append-system-prompt", MEMORY_PROMPT,
     ]  # fmt: skip
     if message is None:
