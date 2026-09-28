@@ -75,17 +75,25 @@ def cmd_ls(args) -> None:
 
 
 def cmd_show(args) -> None:
+    """A memory's file, as GBrain stores it. Without a slug: the newest memory with a recipe."""
     brain = Brain()
-    stored = brain.read(args.slug)
-    if not stored:
-        sys.exit(f"no page {args.slug!r} in {brain.root}")
-    out.print(f"[bold]{escape(stored.page.title)}[/]  [dim]{escape(args.slug)}[/]\n")
-    if not stored.recipe.strip():
-        out.print("[dim]No recipe: an ordinary memory.[/]")
-        return
-    out.print(
-        Syntax(stored.recipe.rstrip(), "python", theme="ansi_dark", background_color="default")
-    )
+    slugs = brain.slugs()
+    if args.slug:
+        slug = args.slug
+    else:
+        with_recipe = [s for s in slugs if (st := brain.read(s)) and st.recipe.strip()]
+        if not with_recipe:
+            sys.exit("no memory has a recipe yet")
+        slug = max(with_recipe, key=lambda s: slugs[s].stat().st_mtime)
+    path = brain.root / f"{slug}.md"
+    if not path.exists():
+        sys.exit(f"no page {slug!r} in {brain.root}")
+    out.print(f"[dim]{escape(str(path))}[/]\n")
+    out.print(Syntax(path.read_text().rstrip(), "markdown", theme="ansi_dark", background_color="default"))
+    if args.open:
+        import subprocess
+
+        subprocess.run(["open", str(path)])
 
 
 def cmd_check(args) -> None:
@@ -142,8 +150,9 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run", help="watch the brain and run every recipe").set_defaults(fn=cmd_run)
     sub.add_parser("ls", help="proactive memories and what they wait for").set_defaults(fn=cmd_ls)
-    p = sub.add_parser("show", help="a memory's recipe")
-    p.add_argument("slug")
+    p = sub.add_parser("show", help="a memory's file (default: the newest memory with a recipe)")
+    p.add_argument("slug", nargs="?")
+    p.add_argument("--open", action="store_true", help="also open the file in its default app")
     p.set_defaults(fn=cmd_show)
     p = sub.add_parser("check", help="load a recipe and list its triggers")
     p.add_argument("file", help="a page (.md), a recipe (.py), or - for a page on stdin")

@@ -346,6 +346,7 @@ class Runtime:
                 "river",
                 f"{verb} a recipe for [bold]{escape(stored.page.title)}[/] [dim]({draft.seconds:.1f} s)[/]",
             )
+            self.out.print(f"                 [cyan]{escape(str(self.brain.root / f'{slug}.md'))}[/]")
             self.show_triggers(slug)
 
     def others(self, slug: str) -> list[Page]:
