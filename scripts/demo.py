@@ -100,7 +100,21 @@ def reset() -> None:
         sys.exit(
             f"GBRAIN_HOME must be a dedicated demo brain under {HOME}, not {BRAIN_HOME or 'unset'}"
         )
-    shutil.rmtree(BRAIN_HOME / ".gbrain", ignore_errors=True)
+    # A chat left open keeps a `gbrain serve` on the old brain; after the wipe its
+    # writes fail with owner_unavailable. Stop whatever still holds the brain.
+    held = subprocess.run(
+        ["lsof", "-t", "+D", str(BRAIN_HOME / ".gbrain")], capture_output=True, text=True
+    )
+    for pid in sorted(set(held.stdout.split())):
+        subprocess.run(["kill", pid])
+        print(
+            f"stopped process {pid} (a GBrain server from an open chat); start the chat again after this"
+        )
+    if held.stdout.strip():
+        time.sleep(1.5)
+    shutil.rmtree(BRAIN_HOME / ".gbrain", ignore_errors=False) if (
+        BRAIN_HOME / ".gbrain"
+    ).exists() else None
     for name in ("state.json", "clock.json"):
         (HOME / name).unlink(missing_ok=True)
     BRAIN_HOME.mkdir(parents=True, exist_ok=True)
