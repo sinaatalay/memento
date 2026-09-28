@@ -177,8 +177,10 @@ def at(
         return moment
     if every is None:
         raise RecipeError("at(..., until=...) only makes sense with every=, e.g. every=days(1)")
-    if not isinstance(every, timedelta) or every < timedelta(minutes=1):
-        raise RecipeError("at(..., every=...): repeat at most once a minute, e.g. every=days(1)")
+    if not isinstance(every, timedelta) or every < timedelta(seconds=10):
+        raise RecipeError(
+            "at(..., every=...): repeat at most every 10 seconds, e.g. every=hours(6)"
+        )
     end = _moment(until, "at(..., until=...)") if until is not None else None
 
     def decorate(fn: Callable) -> Callable:
@@ -190,6 +192,10 @@ def at(
 def now() -> Moment:
     """The current time (the runtime's clock, so demos can travel in time)."""
     return _moment(_context().now, "now()")
+
+
+def seconds(n: float) -> timedelta:
+    return timedelta(seconds=n)
 
 
 def minutes(n: float) -> timedelta:
@@ -365,6 +371,7 @@ __all__ = [
     "minutes",
     "notify",
     "now",
+    "seconds",
     "this",
     "update",
     "weeks",

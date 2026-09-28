@@ -13,6 +13,7 @@ Handlers run in a worker thread and only record effects; `notify` and
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -28,6 +29,7 @@ from .web import fetch as web_fetch
 from .river import River
 
 WORTH = 0.5  # P(worth a recipe) above which River is asked; River may still say NONE
+REPEAT = timedelta(hours=6)  # the same words from one memory aren't sent twice sooner
 LATE = timedelta(
     hours=1
 )  # a reminder later than this (runtime was off, clock jumped) is stale: skip it
@@ -46,16 +48,25 @@ class Memory:
         return self.stored.page
 
 
+# Demo mode: MEMENTO_DEMO_POLL=10 runs every repeating check every 10 seconds,
+# so a recipe that checks a GitHub issue every 6 hours reacts on stage.
+def demo_poll() -> float:
+    return float(os.environ.get("MEMENTO_DEMO_POLL") or 0)
+
+
 def next_fire(trigger: Trigger, record: dict, now: datetime) -> datetime | None:
     """When an @at trigger fires next, given its record {"since", "fired"}; None if never."""
     since = datetime.fromisoformat(record["since"])
     if trigger.every is None:
         return trigger.at if record["fired"] is None and trigger.at > since else None
+    poll = demo_poll()
+    poll = poll if "fetch" in trigger.fn.__code__.co_names else 0  # checks, not reminders
+    every = min(trigger.every, timedelta(seconds=poll)) if poll else trigger.every
     after = datetime.fromisoformat(record["fired"]) if record["fired"] else since
     if after < trigger.at:
         return trigger.at
-    steps = int((after - trigger.at) / trigger.every) + 1
-    moment = trigger.at + steps * trigger.every
+    steps = int((after - trigger.at) / every) + 1
+    moment = trigger.at + steps * every
     return None if trigger.until and moment > trigger.until else moment
 
 
@@ -74,6 +85,8 @@ class Runtime:
         self.writing: set[str] = set()
         self.locks: dict[str, asyncio.Lock] = {}
         self.tasks: set[asyncio.Task] = set()
+        self.sent: dict[tuple[str, str], datetime] = {}  # (memory, text) -> when it was said
+        self.running: set[str] = set()  # memories whose handler or effects are in flight
         self.out = Console(highlight=False)
 
     def now(self) -> datetime:
@@ -225,9 +238,9 @@ class Runtime:
 
     def check_timers(self) -> None:
         now = self.now()
-        for memory in list(self.memories.values()):
-            if not memory.recipe:
-                continue
+        for slug, memory in list(self.memories.items()):
+            if not memory.recipe or slug in self.running or self.lock(slug).locked():
+                continue  # still acting on its last trigger (e.g. River is updating it)
             for key, trigger in memory.recipe.timers.items():
                 record = self.state.timers.setdefault(
                     key, {"since": now.isoformat(), "fired": None}
@@ -247,6 +260,13 @@ class Runtime:
     # ---- handlers and effects ----
 
     async def fire(self, memory: Memory, trigger: Trigger, news: Page | None = None) -> None:
+        self.running.add(memory.page.slug)
+        try:
+            await self._fire(memory, trigger, news)
+        finally:
+            self.running.discard(memory.page.slug)
+
+    async def _fire(self, memory: Memory, trigger: Trigger, news: Page | None = None) -> None:
         now = self.now()
         why = (
             f"@when {trigger.claim}" if trigger.kind == "when" else f"@at {trigger.at:%a %-I:%M %p}"
@@ -283,6 +303,10 @@ class Runtime:
 
     async def apply(self, memory: Memory, effect: Effect) -> None:
         if effect.kind == "notify":
+            key, now = (memory.page.slug, effect.text), self.now()
+            if (last := self.sent.get(key)) and now - last < REPEAT:
+                return  # said exactly this already; once is enough
+            self.sent[key] = now
             self.say("notify", f"[bold]{escape(memory.page.title)}[/]: {escape(effect.text)}")
             await deliver.send(memory.page.title, effect.text)
         elif effect.kind == "update":
@@ -421,7 +445,9 @@ class Runtime:
         self.out.print(
             f"[bold]memento[/] watching [cyan]{escape(str(self.brain.root))}[/]\n"
             f"[dim]{len(self.mtimes)} pages, {active} proactive · "
-            f"now {self.now():%A %B %-d, %-I:%M %p}[/]\n"
+            f"now {self.now():%A %B %-d, %-I:%M %p}"
+            + (f" · demo: repeating checks every {demo_poll():g} s" if demo_poll() else "")
+            + "[/]\n"
         )
 
 

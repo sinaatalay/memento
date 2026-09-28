@@ -11,6 +11,7 @@ import json
 import os
 import re
 import socket
+import time
 import urllib.parse
 import urllib.request
 
@@ -65,8 +66,10 @@ def fetch(url: str) -> Page:
         "User-Agent": "memento (+https://github.com/sinaatalay/memento)",
         "Cache-Control": "no-cache",  # a check right after a change must see the change
     }
-    if parts.hostname == "api.github.com" and (token := os.environ.get("GITHUB_TOKEN")):
-        headers["Authorization"] = f"Bearer {token}"  # fresher, and 5,000 checks an hour
+    if parts.hostname == "api.github.com":
+        url += ("&" if parts.query else "?") + f"_={time.time_ns()}"  # skip GitHub's 60 s cache
+        if token := os.environ.get("GITHUB_TOKEN"):
+            headers["Authorization"] = f"Bearer {token}"  # 5,000 checks an hour
     request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=20) as response:

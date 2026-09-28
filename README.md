@@ -88,7 +88,7 @@ Everything a recipe can import from `memento`:
 
 | | |
 |---|---|
-| `at("2026-09-28 08:05")` | a moment, in your timezone; plus or minus `minutes`/`hours`/`days`/`weeks` |
+| `at("2026-09-28 08:05")` | a moment, in your timezone; plus or minus `seconds`/`minutes`/`hours`/`days`/`weeks` |
 | `@at(moment)` | run the function at that moment |
 | `@at(moment, every=weeks(1), until=…)` | …and repeat |
 | `@when("claim", unless="near misses", until=moment)` | run it when a *new page* in the brain (an email, a note, a chat memory) reports the claim; the function may take that page |
@@ -216,10 +216,13 @@ uv run scripts/demo.py chat    # terminal 2: Claude Code, with GBrain as its mem
 Every beat happens with the chat closed:
 
 1. Tell Claude: *"We can't ship the iOS release until sinaatalay/memento#1 is
-   fixed."* River writes a recipe that checks the issue every 6 hours with
-   `fetch`. Close the chat.
-2. Close the GitHub issue as completed, then `memento time +6h`. Memento
-   fetches the real issue: "memento#1 is fixed. Your iOS release is unblocked."
+   fixed. Ship the moment it's fixed."* River writes a recipe that `fetch`es
+   the issue every few hours. Close the chat.
+2. Close the GitHub issue as completed. With `MEMENTO_DEMO_POLL=10` in
+   `~/.memento/.env`, repeating checks run every 10 seconds, so within ten
+   seconds Memento reads the real issue: "memento#1 is fixed. Your iOS release
+   is unblocked." (Don't ask Claude to check often: it will try to poll the
+   issue itself, inside the chat.)
 3. An email lands: `scripts/demo.py email "Jen Alvarez (Prescient Assurance)"
    "Your final SOC 2 Type I report" "…"`. The weeks-old promise fires: "SOC 2
    is in. Send it to Dan at Acme today: it unblocks the $18k pilot."

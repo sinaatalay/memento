@@ -74,8 +74,7 @@ def silence():
 STORY = [
     ("chat", f"We can't ship the iOS release until {ISSUE} is fixed (Safari checkout crash). "
              "Ship the moment it's fixed."),
-    ("say", f"now close {ISSUE} as completed, then: memento time +6h"),
-    ("time", "+6h"),
+    ("say", f"now close {ISSUE} as completed (MEMENTO_DEMO_POLL=10: checked every 10 s)"),
     ("email", "Jen Alvarez (Prescient Assurance)", "Your final SOC 2 Type I report",
      "Hi! Attached is your final SOC 2 Type I report, signed and issued today. Congrats!"),
     ("time", "fri 17:05"),
@@ -128,8 +127,17 @@ def stage() -> None:
         "Northwind term sheet",
         f"Maya at Northwind said their term sheet comes by Friday ({friday}).",
         TERM_SHEET.format(friday=friday), "deal"))  # fmt: skip
+    repo, number = ISSUE.split("#")
+    reopened = subprocess.run(["gh", "issue", "reopen", number, "-R", repo], capture_output=True)
     print(f"staged: Acme pilot (SOC 2 promise), Northwind (term sheet by Fri {friday})")
-    print(f"live issue: https://github.com/{ISSUE.replace('#', '/issues/')}  (reopen it if closed)")
+    print(
+        f"live issue https://github.com/{repo}/issues/{number}: "
+        + (
+            "open"
+            if reopened.returncode == 0 or b"already open" in reopened.stderr
+            else "reopen it by hand"
+        )
+    )
 
 
 def mcp_config() -> Path:

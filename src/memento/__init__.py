@@ -5,7 +5,7 @@ that says when the memory should come back on its own. This package is both
 the language recipes import and the runtime that runs them.
 
     from memento import at, when, notify, update, this, now, fetch
-    from memento import minutes, hours, days, weeks
+    from memento import seconds, minutes, hours, days, weeks
 """
 
 from .api import (
@@ -18,6 +18,7 @@ from .api import (
     minutes,
     notify,
     now,
+    seconds,
     this,
     update,
     weeks,
@@ -34,6 +35,7 @@ __all__ = [
     "minutes",
     "notify",
     "now",
+    "seconds",
     "this",
     "update",
     "weeks",

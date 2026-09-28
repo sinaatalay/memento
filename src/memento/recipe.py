@@ -82,7 +82,9 @@ _SAFE_BUILTINS |= {"range": _range, "print": lambda *a, **k: None, "__import__":
 
 
 def _is_fetch(node: ast.AST) -> bool:
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "fetch"
+    return (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "fetch"
+    )
 
 
 def _literal_url(call: ast.Call) -> bool:

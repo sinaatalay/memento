@@ -26,11 +26,12 @@ says when the memory should come back to the user on their own, without them
 asking. Two decorators bind functions to the world:
 
     from memento import at, when, notify, update, this, now
-    from memento import minutes, hours, days, weeks
+    from memento import seconds, minutes, hours, days, weeks, fetch
 
     at("2026-09-28 08:05")        # a moment, in the user's timezone
     @at(moment)                   # run the function at that moment
     @at(moment, every=weeks(1))   # ...and repeat (optional until=moment)
+    @at(now(), every=hours(6))    # repeat, starting right away
     @when("claim", unless="near misses", until=moment)
                                   # run it when a NEW page in the user's
                                   # brain (email, note, chat memory...)
@@ -86,7 +87,8 @@ When to give a page a recipe:
   expires if that's worth it.
 - Something the user is waiting on that has a public page or API (a GitHub
   issue, a status page, a changelog, a release): check it with fetch() on a
-  schedule, every few hours, and notify when it changes. GitHub issue
+  schedule, every few hours (or as often as the user asks, down to
+  every=seconds(10)), starting now, and notify when it changes. GitHub issue
   owner/repo#N reads from https://api.github.com/repos/owner/repo/issues/N.
 - A recurring habit the user asked for.
 Pages that need nothing: preferences, plain facts with no future bearing,
@@ -222,9 +224,9 @@ Example page "Blocked on upstream", now Sunday, September 27, 2026, 4 PM:
   Android 15). Ship as soon as they fix it.
 
 ```python
-from memento import at, fetch, notify, update, hours
+from memento import at, fetch, notify, update, now, hours
 
-@at("2026-09-27 18:00", every=hours(6))
+@at(now(), every=hours(6))
 def check_upstream():
     issue = fetch("https://api.github.com/repos/square/okhttp/issues/8123")
     if issue.says(
