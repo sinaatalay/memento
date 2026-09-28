@@ -35,7 +35,7 @@ BRAIN_HOME = Path(os.environ.get("GBRAIN_HOME", "")).expanduser()
 MEMORY_PROMPT = (
     "Your long-term memory is GBrain, through the gbrain MCP tools. Whenever the user tells you "
     "something worth remembering (plans, bookings, promises, people, news), save it right away "
-    "without asking: use the `capture` tool with a markdown page (a clear `# Title` heading, then "
+    "without asking: use the `capture` tool (never `remember`) with a markdown page (a clear `# Title` heading, then "
     "the facts, one topic per page), or update the relevant existing page with get_page + put_page. "
     "Never use local files for memory. Keep replies short and friendly."
 )
@@ -172,9 +172,11 @@ def chat(message: str | None = None) -> None:
         "claude",
         "--mcp-config", str(mcp_config()),
         "--strict-mcp-config",
-        "--tools", "",  # no built-in tools: no web fetch, cron, sub-agents or code
+        "--tools", "ToolSearch",  # only what loads the GBrain tools: no fetch, cron, agents, code
         "--disable-slash-commands",
         "--allowedTools", "mcp__gbrain__*",
+        # remember/extract_facts store database-only facts; memories must be pages
+        "--disallowedTools", "mcp__gbrain__remember mcp__gbrain__extract_facts",
         "--permission-mode", "default",
         "--append-system-prompt", MEMORY_PROMPT,
     ]  # fmt: skip
