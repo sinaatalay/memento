@@ -33,11 +33,11 @@ GBRAIN = shlex.split(os.environ.get("MEMENTO_GBRAIN", "gbrain"))
 BRAIN_HOME = Path(os.environ.get("GBRAIN_HOME", "")).expanduser()
 
 MEMORY_PROMPT = (
-    "Your long-term memory is GBrain, through the gbrain MCP tools. Whenever the user tells you "
-    "something worth remembering (plans, bookings, promises, people, news), save it right away "
-    "without asking: use the `capture` tool (never `remember`) with a markdown page (a clear `# Title` heading, then "
-    "the facts, one topic per page), or update the relevant existing page with get_page + put_page. "
-    "Never use local files for memory. Keep replies short and friendly."
+    "Your long-term memory is GBrain, through the gbrain MCP tools. Every time the user tells "
+    "you something about their plans, work, promises, people or what they're waiting on, your "
+    "FIRST action is to save it with the `capture` tool (never `remember`): a markdown page with "
+    "a clear `# Title` heading, then the facts in the user's words, one topic per page. Always "
+    "save, even if you can't act on it yourself. Then reply in one short sentence."
 )
 
 ISSUE = "sinaatalay/memento#1"  # a public issue you control: close it on stage
@@ -72,8 +72,8 @@ def silence():
 """
 
 STORY = [
-    ("chat", f"We can't ship the iOS release until {ISSUE} is fixed (Safari checkout crash). "
-             "Ship the moment it's fixed."),
+    ("chat", f"Remember this: our iOS release is blocked on GitHub issue {ISSUE} "
+             "(Safari checkout crash). We ship as soon as it's fixed."),
     ("say", f"now close {ISSUE} as completed (MEMENTO_DEMO_POLL=10: checked every 10 s)"),
     ("email", "Jen Alvarez (Prescient Assurance)", "Your final SOC 2 Type I report",
      "Hi! Attached is your final SOC 2 Type I report, signed and issued today. Congrats!"),
