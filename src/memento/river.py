@@ -47,6 +47,8 @@ Inside a function:
     page.says("claim", unless=...)       -> bool   (yes/no)
     page.which("question", a="...", b="...") -> "a" | "b"   (pick one)
     page.rate("question", ["low", "mid", "high"]) -> 0..2  (scale)
+    fetch("https://...")          # read a public web page or JSON API now,
+                                  # as a page; the URL must be a literal
 
 Claims and questions are answered by Jev, a fast decision model that reads
 only the page in front of it, literally. So:
@@ -82,6 +84,10 @@ When to give a page a recipe:
 - Coverage that matters when something goes wrong: a warranty, insurance, a
   credit, a return window. Watch for the problem it covers; remind before it
   expires if that's worth it.
+- Something the user is waiting on that has a public page or API (a GitHub
+  issue, a status page, a changelog, a release): check it with fetch() on a
+  schedule, every few hours, and notify when it changes. GitHub issue
+  owner/repo#N reads from https://api.github.com/repos/owner/repo/issues/N.
 - A recurring habit the user asked for.
 Pages that need nothing: preferences, plain facts with no future bearing,
 reference notes, things already done or past. Then answer NONE.
@@ -209,6 +215,24 @@ from memento import at, when, notify
 def stolen(news):
     notify("Your Lemonade renter's policy covers theft up to $2,500 "
            "($250 deductible). File a claim.")
+```
+
+Example page "Blocked on upstream", now Sunday, September 27, 2026, 4 PM:
+  Our Android release is blocked on square/okhttp#8123 (TLS crash on
+  Android 15). Ship as soon as they fix it.
+
+```python
+from memento import at, fetch, notify, update, hours
+
+@at("2026-09-27 18:00", every=hours(6))
+def check_upstream():
+    issue = fetch("https://api.github.com/repos/square/okhttp/issues/8123")
+    if issue.says(
+        "issue #8123 is fixed: closed as completed, or a fix was released",
+        unless="it is still open, or closed as not planned or a duplicate",
+    ):
+        notify("okhttp fixed #8123. Your Android release is unblocked.")
+        update(issue)
 ```
 
 Example page "Aisle seats": I prefer aisle seats on long flights.

@@ -81,6 +81,19 @@ _SAFE_BUILTINS: dict[str, Any] = {
 _SAFE_BUILTINS |= {"range": _range, "print": lambda *a, **k: None, "__import__": _import}
 
 
+def _is_fetch(node: ast.AST) -> bool:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "fetch"
+
+
+def _literal_url(call: ast.Call) -> bool:
+    arg = call.args[0] if len(call.args) == 1 and not call.keywords else None
+    return (
+        isinstance(arg, ast.Constant)
+        and isinstance(arg.value, str)
+        and arg.value.startswith(("https://", "http://"))
+    )
+
+
 def lint(source: str) -> list[str]:
     """Static problems, as `line N: ...` strings. Empty means the recipe may run."""
     if "\t" in source:
@@ -119,6 +132,10 @@ def lint(source: str) -> list[str]:
             node.attr.startswith("_") or node.attr in _BANNED_ATTRIBUTES
         ):
             problems.append(f"line {line}: `.{node.attr}` is not allowed in a recipe")
+        elif _is_fetch(node) and not _literal_url(node):
+            problems.append(
+                f'line {line}: fetch() takes a literal "https://..." URL, never one built from data'
+            )
         elif isinstance(node, ast.Name) and (node.id.startswith("_") or node.id in _BANNED_NAMES):
             problems.append(f"line {line}: `{node.id}` is not allowed in a recipe")
     return problems
@@ -214,9 +231,10 @@ def run(
     now: datetime,
     ask: Callable[[Page, Question], Any],
     news: Page | None = None,
+    fetch: Callable[[str], Page] | None = None,
 ) -> Run:
     """Call a trigger's handler. Returns what it asked Jev and the effects it recorded."""
-    ctx = Context(this=memory, now=now, effects=[], ask=ask)
+    ctx = Context(this=memory, now=now, effects=[], ask=ask, fetch=fetch)
     token = api._current.set(ctx)
     try:
         takes_news = trigger.fn.__code__.co_argcount > 0

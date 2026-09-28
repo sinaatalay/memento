@@ -52,6 +52,8 @@ def flight_changed(news):                # a NEW page reports the claim
 - On any page (`this`, or `news`): `says(claim, unless=)` → bool,
   `which(question, a="…", b="…")` → label, `rate(question, [levels])` → index.
   Jev, a fast decision model, answers them from that page alone.
+- `fetch("https://…")` reads a public page or JSON API as a page (literal URLs
+  only). Poll it with `@at(..., every=hours(6))` for things the user waits on.
 - Claims are specific and self-contained: names, flight numbers, dates as
   written. One claim per `@when`. No date arithmetic in claims; do time math
   in Python. `unless=` names the near misses that must not fire.

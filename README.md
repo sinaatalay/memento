@@ -99,6 +99,7 @@ Everything a recipe can import from `memento`:
 | `page.which(question, a="…", b="…")` | pick one, from Jev |
 | `page.rate(question, [levels])` | a level on a scale, from Jev |
 | `now()` | the runtime's clock |
+| `fetch("https://…")` | read a public web page or JSON API now, as a page; the URL must be written literally, so a recipe can look but never send your data anywhere |
 
 Handlers are ordinary Python, so semantic answers compose with control flow:
 
@@ -207,18 +208,26 @@ two share the brain safely. On macOS, allow notifications for Script Editor
 ### The demo
 
 ```sh
-uv run scripts/demo.py reset   # a fresh demo brain in GBRAIN_HOME
-uv run memento run             # terminal 1
+uv run scripts/demo.py stage   # fresh brain + two memories from "weeks ago"
+uv run memento run             # terminal 1: the live log
 uv run scripts/demo.py chat    # terminal 2: Claude Code, with GBrain as its memory
 ```
 
-Tell Claude about your Monday flight, that Priya needs a founding designer,
-that you promised her the deck by Wednesday. River gives each memory a recipe.
-Mention coffee with Alex, a Figma designer who's leaving: Priya's memory fires
-"Intro for Priya?". Drop United's delay email into the brain
-(`scripts/demo.py email …`): the flight memory notifies and rewrites itself.
-`memento time "mon 7:45"`: the re-timed airport reminder arrives.
-`scripts/demo.py play` runs the whole story unattended.
+Every beat happens with the chat closed:
+
+1. Tell Claude: *"We can't ship the iOS release until sinaatalay/memento#1 is
+   fixed."* River writes a recipe that checks the issue every 6 hours with
+   `fetch`. Close the chat.
+2. Close the GitHub issue as completed, then `memento time +6h`. Memento
+   fetches the real issue: "memento#1 is fixed. Your iOS release is unblocked."
+3. An email lands: `scripts/demo.py email "Jen Alvarez (Prescient Assurance)"
+   "Your final SOC 2 Type I report" "…"`. The weeks-old promise fires: "SOC 2
+   is in. Send it to Dan at Acme today: it unblocks the $18k pilot."
+4. `memento time "fri 17:05"`. Nothing arrived: "Friday 5pm and no term sheet
+   from Northwind. Call Maya."
+
+Reopen the issue and run `stage` again to rehearse. `scripts/demo.py play`
+walks the same story with a pause for closing the issue.
 
 ## Layout
 

@@ -1,6 +1,7 @@
 """Drive a Memento demo: a fresh brain, an ordinary AI chat on GBrain, email arriving.
 
-    uv run scripts/demo.py reset            # fresh demo brain + memento state
+    uv run scripts/demo.py stage            # fresh brain + the two memories from weeks ago
+    uv run scripts/demo.py reset            # fresh, empty demo brain + memento state
     uv run scripts/demo.py chat             # chat with Claude; GBrain is its memory
     uv run scripts/demo.py chat "message"   # one message, for scripting
     uv run scripts/demo.py email "United Airlines" "Schedule change: UA123" "body…"
@@ -21,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 
 from memento import state
@@ -38,19 +40,45 @@ MEMORY_PROMPT = (
     "Never use local files for memory. Keep replies short and friendly."
 )
 
+ISSUE = "sinaatalay/memento#1"  # a public issue you control: close it on stage
+
+# Two memories from "weeks ago", already carrying the recipes River wrote.
+SOC2 = """\
+from memento import when, notify, update
+
+@when(
+    "our final SOC 2 report was delivered or issued",
+    unless="the audit is only scheduled, in progress, or a draft",
+)
+def soc2_ready(news):
+    notify("SOC 2 is in. Send it to Dan at Acme today: it unblocks the $18k pilot.")
+    update(news)
+"""
+
+TERM_SHEET = """\
+from memento import at, when, notify, update, this
+
+friday = at("{friday} 17:00")
+
+@when("Maya at Northwind sent the term sheet", until=friday)
+def arrived(news):
+    notify("Northwind's term sheet is in. Read it tonight.")
+    update(news)
+
+@at(friday)
+def silence():
+    if not this.says("the Northwind term sheet arrived"):
+        notify("Friday 5pm and no term sheet from Northwind. Call Maya.")
+"""
+
 STORY = [
-    ("chat", "Booked my flight to New York for Monday: UA123 out of SFO at 8:05am, seat 14C."),
-    ("chat", "Priya Raman is leaving Northwind to start a company and needs a founding product "
-             "designer. I told her I'd keep an eye out."),
-    ("chat", "I promised Priya our seed deck by Wednesday end of day."),
-    ("chat", "Had coffee with Alex Chen today. Six years as a senior product designer at Figma, "
-             "leaving next month, wants to be a founding designer somewhere."),
-    ("email", "United Airlines", "Schedule change: UA 123 on Mon, Sep 28",
-     "Your flight UA 123 from San Francisco (SFO) to New York (JFK) on Monday, September 28 now "
-     "departs at 10:40 AM instead of 8:05 AM and arrives at 7:16 PM. Seat 14C is unchanged. "
-     "Confirmation K7Q2LM."),
-    ("time", "sun 22:45"),
-    ("time", "mon 7:45"),
+    ("chat", f"We can't ship the iOS release until {ISSUE} is fixed (Safari checkout crash). "
+             "Ship the moment it's fixed."),
+    ("say", f"now close {ISSUE} as completed, then: memento time +6h"),
+    ("time", "+6h"),
+    ("email", "Jen Alvarez (Prescient Assurance)", "Your final SOC 2 Type I report",
+     "Hi! Attached is your final SOC 2 Type I report, signed and issued today. Congrats!"),
+    ("time", "fri 17:05"),
 ]  # fmt: skip
 
 
@@ -79,6 +107,29 @@ def reset() -> None:
     BRAIN_HOME.mkdir(parents=True, exist_ok=True)
     gbrain("init", "--pglite", "--no-embedding", "--non-interactive", "--json")
     print(f"fresh brain in {BRAIN_HOME}; start `uv run memento run` now")
+
+
+def page(title: str, body: str, recipe: str, kind: str = "note") -> str:
+    block = "".join(f"  {line}\n" if line else "\n" for line in recipe.splitlines())
+    return f"---\ntype: {kind}\ntitle: {json.dumps(title)}\nrecipe: |\n{block}---\n\n# {title}\n\n{body}\n"
+
+
+def stage() -> None:
+    """A fresh brain holding the two memories from weeks ago. Start `memento run` after."""
+    reset()
+    today = state.now()
+    friday = (today + timedelta(days=(4 - today.weekday()) % 7 or 7)).strftime("%Y-%m-%d")
+    gbrain("put", "projects/acme-pilot", "--json", stdin=page(
+        "Acme pilot",
+        "Told Dan Kim (Acme security) he gets our SOC 2 Type I report the day our auditor "
+        "delivers it. Acme's $18k pilot is blocked on it.",
+        SOC2, "project"))  # fmt: skip
+    gbrain("put", "deals/northwind", "--json", stdin=page(
+        "Northwind term sheet",
+        f"Maya at Northwind said their term sheet comes by Friday ({friday}).",
+        TERM_SHEET.format(friday=friday), "deal"))  # fmt: skip
+    print(f"staged: Acme pilot (SOC 2 promise), Northwind (term sheet by Fri {friday})")
+    print(f"live issue: https://github.com/{ISSUE.replace('#', '/issues/')}  (reopen it if closed)")
 
 
 def mcp_config() -> Path:
@@ -131,6 +182,9 @@ def play() -> None:
             email(*args)
         elif kind == "time":
             print(f"time    {state.travel(args[0]):%a %b %-d, %-I:%M %p}")
+        elif kind == "say":
+            input(f"\n>>> {args[0]}  [enter] ")
+            continue
         time.sleep(12)
 
 
@@ -138,6 +192,8 @@ if __name__ == "__main__":
     command, *rest = sys.argv[1:] or ["help"]
     if command == "reset":
         reset()
+    elif command == "stage":
+        stage()
     elif command == "chat":
         chat(" ".join(rest) or None)
     elif command == "email" and len(rest) == 3:

@@ -242,6 +242,18 @@ def notify(text: str) -> None:
     _effects().append(Effect("notify", text=_text(str(text), "notify()")))
 
 
+def fetch(url: str) -> Page:
+    """Read a web page or JSON API now, as a page: `fetch("https://...")`.
+
+    The URL must be written literally in the recipe, so a recipe can only look
+    at the places it names, never send your memories anywhere.
+    """
+    ctx = _context()
+    if ctx.fetch is None:
+        raise RecipeError("fetch() only works inside an @at or @when function")
+    return ctx.fetch(_text(url, "fetch()"))
+
+
 def update(news: Page | None = None) -> None:
     """Revise this memory (its text and its recipe) in light of `news`."""
     if news is not None and not isinstance(news, Page):
@@ -291,6 +303,7 @@ class Context:
     triggers: list[Trigger] | None = None  # collecting: the recipe is being loaded
     effects: list[Effect] | None = None  # running: a handler is being called
     ask: Callable[[Page, Question], Any] | None = None
+    fetch: Callable[[str], Page] | None = None
     asked: list[tuple[Page, Question, Any]] = field(default_factory=list)
 
 
@@ -347,6 +360,7 @@ __all__ = [
     "RecipeError",
     "at",
     "days",
+    "fetch",
     "hours",
     "minutes",
     "notify",

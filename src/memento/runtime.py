@@ -24,6 +24,7 @@ from .api import Effect, Page, RecipeError, Trigger
 from .gbrain import Brain, GBrainError, Stored
 from .jev import FIRES, WORTH_A_RECIPE, Jev
 from .recipe import Recipe, load, run
+from .web import fetch as web_fetch
 from .river import River
 
 WORTH = 0.5  # P(worth a recipe) above which River is asked; River may still say NONE
@@ -77,6 +78,11 @@ class Runtime:
 
     def now(self) -> datetime:
         return state.now()
+
+    def fetch(self, url: str) -> Page:
+        page = web_fetch(url)
+        self.say("fetch", f"[dim]{escape(url)} → {escape(page.title[:70])}[/]")
+        return page
 
     # ---- the loop ----
 
@@ -229,7 +235,7 @@ class Runtime:
                 moment = next_fire(trigger, record, now)
                 if moment is not None and moment <= now:
                     record["fired"] = now.isoformat()
-                    if now - moment > LATE:
+                    if trigger.every is None and now - moment > LATE:  # a late check still runs
                         late = f"{(now - moment).total_seconds() / 3600:.0f}h"
                         self.say(
                             "fire",
@@ -256,7 +262,7 @@ class Runtime:
 
         try:
             done = await asyncio.wait_for(
-                asyncio.to_thread(run, trigger, memory.page, now, ask, news), 90
+                asyncio.to_thread(run, trigger, memory.page, now, ask, news, self.fetch), 90
             )
         except Exception as e:
             self.say(
@@ -391,6 +397,7 @@ class Runtime:
         "jev": "magenta",
         "river": "blue",
         "fire": "yellow",
+        "fetch": "cyan",
         "notify": "bold green",
         "error": "red",
     }
